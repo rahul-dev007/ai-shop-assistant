@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProductModel } from "@/lib/models/Product";
 
-// 👉 Next.js কে বলছি: এই route সবসময় dynamic
+// 👉 এই route সবসময় dynamic ভাবে রান করবে (SSR)
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
     const Product = await getProductModel();
 
-    // ❌ const { searchParams } = new URL(req.url);
-    // ✅ এইভাবে নাও:
     const searchParams = req.nextUrl.searchParams;
 
     const q = searchParams.get("q") || "";
