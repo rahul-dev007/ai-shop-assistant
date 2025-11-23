@@ -9,10 +9,16 @@ export async function GET(req: NextRequest) {
     const q = searchParams.get("q") || "";
     const category = searchParams.get("category") || "";
     const limitParam = searchParams.get("limit") || "20";
+    const id = searchParams.get("id"); // ⭐ নতুন
 
     const limit = Number.isNaN(Number(limitParam)) ? 20 : Number(limitParam);
 
     const filter: any = {};
+
+    // ⭐ যদি id থাকে, direct সেই ডকুমেন্ট ফিল্টার
+    if (id) {
+      filter._id = id;
+    }
 
     if (category && category !== "all") {
       filter.category = category;

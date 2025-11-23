@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import ProductCard from "@/components/ProductCard";
 
 type UiProduct = {
@@ -122,10 +123,13 @@ export default function ProductExplorer() {
         {!loading && products.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
             {products.map((p) => (
-              <div key={p.productId} className="text-[11px]">
-                {/* ProductCard এর টাইপ mismatch হলে এভাবে any করে দিচ্ছি */}
+              <Link
+                key={p.productId}
+                href={`/chat?productId=${p.productId}`}
+                className="text-[11px] block"
+              >
                 <ProductCard product={p as any} />
-              </div>
+              </Link>
             ))}
           </div>
         )}

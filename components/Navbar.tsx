@@ -27,7 +27,7 @@ export default function Navbar() {
               Home
             </a>
             <a
-              href="#products"
+              href="/#products"
               className="px-3 py-1 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/60 hover:bg-sky-500 hover:text-slate-900 transition"
             >
               Products

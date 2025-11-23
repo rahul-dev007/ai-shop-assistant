@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import OrderForm from "@/components/OrderForm";
 import ProductCard from "@/components/ProductCard";
 import ChatBubble from "@/components/ChatBubble";
@@ -20,11 +21,69 @@ interface PendingOrder {
   price?: number;
 }
 
+interface SelectedProduct {
+  productId: string;
+  name_bn: string;
+  name_en?: string;
+  category: string;
+  price: number;
+  tags: string[];
+  imageUrl?: string;
+  description_bn?: string;
+  colors?: string[];
+  sizes?: string[];
+  stock?: number;
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pendingOrder, setPendingOrder] = useState<PendingOrder | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const [selectedProduct, setSelectedProduct] = useState<SelectedProduct | null>(
+    null
+  );
+
+  const searchParams = useSearchParams();
+
+  // 🔥 URL থেকে productId নিয়ে প্রোডাক্ট লোড করি
+  useEffect(() => {
+    const id = searchParams.get("productId");
+    if (!id) return;
+
+    const fetchSelectedProduct = async () => {
+      try {
+        const res = await fetch(`/api/products?id=${id}`);
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const p = data.products?.[0];
+
+        if (p) {
+          setSelectedProduct(p);
+
+          // যদি আগে কোনো মেসেজ না থাকে, একটা ছোট গাইড মেসেজ দেই
+          setMessages((prev) =>
+            prev.length
+              ? prev
+              : [
+                  {
+                    id: crypto.randomUUID(),
+                    from: "bot",
+                    text:
+                      "এই প্রোডাক্ট সম্পর্কে কিছু জানতে চাইলে লিখুন, আর অর্ডার করতে চাইলে লিখুন: apu eta order dibo 💚",
+                  },
+                ]
+          );
+        }
+      } catch (e) {
+        console.error("Failed to load selected product from URL:", e);
+      }
+    };
+
+    fetchSelectedProduct();
+  }, [searchParams]);
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -119,6 +178,16 @@ export default function ChatPage() {
             bg-cover bg-center
           "
         >
+          {/* 🔥 Products পেজ থেকে আসা সিলেক্টেড প্রোডাক্টকে প্রথম bubble হিসেবে দেখাই */}
+          {selectedProduct && (
+            <ChatBubble from="bot">
+              <div className="text-[11px] mb-2">
+                আপনি এই প্রোডাক্ট থেকে এসেছেন 👇
+              </div>
+              <ProductCard product={selectedProduct as any} />
+            </ChatBubble>
+          )}
+
           {messages.map((m) => (
             <ChatBubble key={m.id} from={m.from}>
               {m.text}
@@ -132,7 +201,8 @@ export default function ChatPage() {
             </ChatBubble>
           ))}
 
-          {messages.length === 0 && (
+          {/* শুধু তখনই initial text দেখাবো, যখন কোনো product ও message দুটোরই কিছু নাই */}
+          {messages.length === 0 && !selectedProduct && (
             <p className="text-center text-xs text-slate-200 mt-10 bg-black/40 inline-block px-3 py-2 rounded-full">
               হ্যালো! প্রথম মেসেজ দিন…
             </p>

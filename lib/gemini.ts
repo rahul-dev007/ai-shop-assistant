@@ -1,7 +1,7 @@
 import { ChatAIResponse } from "@/types/chat";
 import { SYSTEM_PROMPT } from "@/lib/prompt";
 
-const apiKey = "AIzaSyBi4v2-0ZjCMsGqUzFYaDnOgYqUMZ1l_2Y";
+const apiKey = process.env.GEMINI_API_KEY;
 
 if (!apiKey) {
   console.warn("GEMINI_API_KEY is not set in .env.local");
