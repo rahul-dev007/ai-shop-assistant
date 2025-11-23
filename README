@@ -1,0 +1,57 @@
+[ User (Facebook Page) ]
+          |
+          v
+[ Facebook Page Button (Visit Website / Shop Now) ]
+          |
+          v
+[ Your Next.js App on Vercel ]
+    |                 |
+    |                 +--> [ Frontend UI (Chat, Product card, Order form) ]
+    |
+    +--> [ API Routes ]
+            |
+            +--> /api/chat  ----> [ Gemini API (LLM) ]
+            |                      (Bangla reply + intent + product select)
+            |
+            +--> /api/order ----> [ MongoDB Atlas (orders, products) ]
+            |                      [ Email Service (Nodemailer/SMTP) ]
+            |
+            +--> (optional) /api/products/search ----> [ MongoDB products ]
+
+
+
+
+
+project-root/
+  app/
+    layout.tsx
+    page.tsx                // home (optional)
+    chat/
+      page.tsx              // main chat UI page
+    api/
+      chat/
+        route.ts            // POST /api/chat -> AI + RAG
+      order/
+        route.ts            // POST /api/order -> save + email
+      products/
+        search/
+          route.ts          // optional: product search API
+  components/
+    ChatWidget.tsx          // floating chat icon + window
+    MessageList.tsx         // message rendering
+    ProductCard.tsx         // product + image card
+    OrderForm.tsx           // form for name/phone/email/address etc.
+  lib/
+    db.ts                   // MongoDB connect
+    models/
+      Product.ts            // product schema/model
+      Order.ts              // order schema/model
+    gemini.ts               // Gemini API helper
+    productSearch.ts        // logic to find candidate products
+    prompt.ts               // system prompt + JSON schema
+    email.ts                // nodemailer/email helper
+  types/
+    chat.ts                 // TypeScript types for ChatResponse, Intent etc.
+    product.ts
+    order.ts
+  .env.local                // MONGODB_URI, GEMINI_API_KEY, EMAIL creds
