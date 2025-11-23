@@ -1,4 +1,5 @@
-import { Schema, models, model, Document, Types } from "mongoose";
+import { Schema, models, model, type Document, type Model, Types } from "mongoose";
+
 import { connectDB } from "@/lib/db";
 
 export type OrderStatus = "pending" | "confirmed" | "cancelled";
@@ -36,9 +37,8 @@ const OrderSchema = new Schema<IOrder>(
   }
 );
 
-const Order =
-  (models.Order as ReturnType<typeof model<IOrder>>) ||
-  model<IOrder>("Order", OrderSchema);
+const Order: Model<IOrder> =
+  (models.Order as Model<IOrder>) || model<IOrder>("Order", OrderSchema);
 
 export async function getOrderModel() {
   await connectDB();
