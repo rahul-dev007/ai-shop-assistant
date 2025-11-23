@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProductModel } from "@/lib/models/Product";
 
+// 👉 Next.js কে বলছি: এই route সবসময় dynamic
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const Product = await getProductModel();
-    const { searchParams } = new URL(req.url);
+
+    // ❌ const { searchParams } = new URL(req.url);
+    // ✅ এইভাবে নাও:
+    const searchParams = req.nextUrl.searchParams;
 
     const q = searchParams.get("q") || "";
     const category = searchParams.get("category") || "";
     const limitParam = searchParams.get("limit") || "20";
-    const id = searchParams.get("id"); // ⭐ নতুন
+    const id = searchParams.get("id");
 
     const limit = Number.isNaN(Number(limitParam)) ? 20 : Number(limitParam);
 
     const filter: any = {};
 
-    // ⭐ যদি id থাকে, direct সেই ডকুমেন্ট ফিল্টার
     if (id) {
       filter._id = id;
     }

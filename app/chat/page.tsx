@@ -35,6 +35,14 @@ interface SelectedProduct {
   stock?: number;
 }
 
+// ✅ safe ID generator – SSR এও কাজ করবে
+function createId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2);
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -69,7 +77,7 @@ export default function ChatPage() {
               ? prev
               : [
                   {
-                    id: crypto.randomUUID(),
+                    id: createId(),
                     from: "bot",
                     text:
                       "এই প্রোডাক্ট সম্পর্কে কিছু জানতে চাইলে লিখুন, আর অর্ডার করতে চাইলে লিখুন: apu eta order dibo 💚",
@@ -89,7 +97,7 @@ export default function ChatPage() {
     if (!input.trim() || loading) return;
 
     const newUserMsg: Message = {
-      id: crypto.randomUUID(),
+      id: createId(),
       from: "user",
       text: input,
     };
@@ -123,7 +131,7 @@ export default function ChatPage() {
         setMessages((prev) => [
           ...prev,
           {
-            id: crypto.randomUUID(),
+            id: createId(),
             from: "bot",
             text:
               "দুঃখিত, কোন নির্দিষ্ট প্রোডাক্ট বুঝতে পারিনি। আবার যে প্রোডাক্টটা চান, তার নাম লিখে বলবেন?",
@@ -144,7 +152,7 @@ export default function ChatPage() {
     setMessages((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id: createId(),
         from: "bot",
         text: data.reply_bn,
         aiMeta: data,
@@ -178,7 +186,7 @@ export default function ChatPage() {
             bg-cover bg-center
           "
         >
-          {/* 🔥 Products পেজ থেকে আসা সিলেক্টেড প্রোডাক্টকে প্রথম bubble হিসেবে দেখাই */}
+          {/* Products পেজ থেকে আসা সিলেক্টেড প্রোডাক্টকে প্রথম bubble হিসেবে দেখাই */}
           {selectedProduct && (
             <ChatBubble from="bot">
               <div className="text-[11px] mb-2">
@@ -218,7 +226,7 @@ export default function ChatPage() {
               setMessages((prev) => [
                 ...prev,
                 {
-                  id: crypto.randomUUID(),
+                  id: createId(),
                   from: "bot",
                   text: msg.messageBn,
                 },
