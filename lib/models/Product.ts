@@ -1,4 +1,4 @@
-import { Schema, models, model, Document } from "mongoose";
+import { Schema, models, model, type Document, type Model } from "mongoose";
 import { connectDB } from "@/lib/db";
 
 export interface IProduct extends Document {
@@ -34,8 +34,9 @@ const ProductSchema = new Schema<IProduct>(
   }
 );
 
-const Product =
-  (models.Product as ReturnType<typeof model<IProduct>>) ||
+// 👇 এখানে টাইপ ঠিক করা হলো
+const Product: Model<IProduct> =
+  (models.Product as Model<IProduct>) ||
   model<IProduct>("Product", ProductSchema);
 
 export async function getProductModel() {

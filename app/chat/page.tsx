@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, KeyboardEvent } from "react";
+import { useState } from "react";
 import OrderForm from "@/components/OrderForm";
 import ProductCard from "@/components/ProductCard";
 import ChatBubble from "@/components/ChatBubble";
@@ -70,17 +70,17 @@ export default function ChatPage() {
               "দুঃখিত, কোন নির্দিষ্ট প্রোডাক্ট বুঝতে পারিনি। আবার যে প্রোডাক্টটা চান, তার নাম লিখে বলবেন?",
           },
         ]);
+        setLoading(false);
         return;
       }
 
       setPendingOrder({
-        productId: matchedProduct.productId,   // ✅ DB id নিশ্চিত
+        productId: matchedProduct.productId, // ✅ DB id নিশ্চিত
         quantity: sel.quantity ?? 1,
         productName: matchedProduct.name_bn,
         price: matchedProduct.price,
       });
     }
-
 
     setMessages((prev) => [
       ...prev,
@@ -96,8 +96,8 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex justify-center p-4">
-      <div className="w-full max-w-md bg-slate-950 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+    <div className="min-h-screen flex justify-center items-center p-2 sm:p-4 bg-slate-950">
+      <div className="w-full max-w-md sm:max-w-lg bg-slate-950 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
         {/* inner header like WhatsApp */}
         <div className="bg-emerald-700 px-3 py-2 flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-white text-emerald-700 font-bold flex items-center justify-center">
@@ -110,7 +110,15 @@ export default function ChatPage() {
         </div>
 
         {/* chat area */}
-        <div className="h-[70vh] overflow-y-auto p-3 bg-[url('https://i.ibb.co/fHcwnW9/whatsapp-bg-light.png')] bg-cover">
+        <div
+          className="
+            h-[60vh] sm:h-[70vh]
+            overflow-y-auto
+            p-3
+            bg-[url('/chatbot.png')]
+            bg-cover bg-center
+          "
+        >
           {messages.map((m) => (
             <ChatBubble key={m.id} from={m.from}>
               {m.text}
@@ -125,7 +133,7 @@ export default function ChatPage() {
           ))}
 
           {messages.length === 0 && (
-            <p className="text-center text-xs text-slate-300 mt-10">
+            <p className="text-center text-xs text-slate-200 mt-10 bg-black/40 inline-block px-3 py-2 rounded-full">
               হ্যালো! প্রথম মেসেজ দিন…
             </p>
           )}
@@ -152,7 +160,7 @@ export default function ChatPage() {
         {/* input */}
         <div className="p-2 bg-slate-900 border-t border-slate-800 flex gap-2">
           <input
-            className="flex-1 bg-slate-800 text-slate-100 px-3 py-2 rounded-full text-sm"
+            className="flex-1 bg-slate-800 text-slate-100 px-3 py-2 rounded-full text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendMessage()}
@@ -160,9 +168,10 @@ export default function ChatPage() {
           />
           <button
             onClick={sendMessage}
-            className="bg-emerald-500 text-slate-900 px-4 py-2 rounded-full"
+            disabled={loading}
+            className="bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-slate-900 px-4 py-2 rounded-full text-sm font-semibold"
           >
-            Send
+            {loading ? "..." : "Send"}
           </button>
         </div>
       </div>
