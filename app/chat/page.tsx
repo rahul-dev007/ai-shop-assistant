@@ -7,6 +7,8 @@ import ProductCard from "@/components/ProductCard";
 import ChatBubble from "@/components/ChatBubble";
 import { ChatAIResponse } from "@/types/chat";
 
+export const dynamic = "force-dynamic"; // ⭐ এটা নতুন
+
 interface Message {
   id: string;
   from: "user" | "bot";
