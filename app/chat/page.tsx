@@ -1,11 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import OrderForm from "@/components/OrderForm";
-import ProductCard from "@/components/ProductCard";
+
 import ChatBubble from "@/components/ChatBubble";
-import { ChatAIResponse } from "@/types/chat";
+import type { ChatAIResponse } from "@/types/chat";
+
+// ⭐ OrderForm আর ProductCard শুধু client-side এ render হবে
+const OrderForm = dynamic(() => import("@/components/OrderForm"), {
+  ssr: false,
+});
+const ProductCard = dynamic(() => import("@/components/ProductCard"), {
+  ssr: false,
+});
 
 interface Message {
   id: string;
@@ -35,7 +43,7 @@ interface SelectedProduct {
   stock?: number;
 }
 
-// ✅ safe ID generator – SSR এও কাজ করবে
+// ✅ safe ID generator – client + build দুই জায়গায়ই safe
 function createId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -54,7 +62,6 @@ function isOrderMessage(text: string) {
     t.includes("orde dibo") ||
     t.includes("orde korbo") ||
     t.includes("অর্ডার") ||
-    t.includes("order dibo") ||
     t.includes("eta nibo") ||
     t.includes("eta nebo") ||
     t.includes("এটা নিব") ||
@@ -69,7 +76,6 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [pendingOrder, setPendingOrder] = useState<PendingOrder | null>(null);
   const [loading, setLoading] = useState(false);
-
   const [selectedProduct, setSelectedProduct] = useState<SelectedProduct | null>(
     null
   );
@@ -111,6 +117,7 @@ export default function ChatPage() {
     };
 
     fetchSelectedProduct();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
   const sendMessage = async () => {
@@ -129,8 +136,7 @@ export default function ChatPage() {
     setMessages(newMessages);
     setInput("");
 
-    // 🔹 যদি user স্পষ্টভাবে "order" টাইপ কিছু বলে এবং
-    // URL থেকে আসা selectedProduct থাকে → direct OrderForm খুলে দেই, AI call ছাড়াই
+    // 🔹 User order টাইপ কিছু বললে, আর selectedProduct থাকলে → সরাসরি OrderForm
     if (orderIntentByUser && selectedProduct) {
       setPendingOrder({
         productId: selectedProduct.productId,
@@ -139,14 +145,12 @@ export default function ChatPage() {
         price: selectedProduct.price,
       });
 
-      // উপরে একটা ছোট bot messageও যোগ করি
       setMessages((prev) => [
         ...prev,
         {
           id: createId(),
           from: "bot",
-          text:
-            "ঠিক আছে আপু, নিচের ফর্মটি পূরণ করে অর্ডার কনফার্ম করে দিন 🥰",
+          text: "ঠিক আছে আপু, নিচের ফর্মটি পূরণ করে অর্ডার কনফার্ম করে দিন 🥰",
         },
       ]);
 
@@ -168,9 +172,9 @@ export default function ChatPage() {
 
     const data: ChatAIResponse = await res.json();
 
-    // 🔹 ১ম প্রায়োরিটি: AI যদি নিজে থেকে ASK_ORDER_FORM দেয়
     let orderHandled = false;
 
+    // 🔹 ১ম প্রায়োরিটি: AI যদি নিজে থেকে ASK_ORDER_FORM দেয়
     if (data.intent === "ASK_ORDER_FORM" && data.selected_products?.length) {
       const sel = data.selected_products[0];
 
@@ -202,8 +206,7 @@ export default function ChatPage() {
       orderHandled = true;
     }
 
-    // 🔹 ২য় প্রায়োরিটি: AI intent না দিলেও, user যদি order মেসেজ পাঠায়
-    // এবং AI একটাই প্রোডাক্ট suggest করে → সেইটার ওপর OrderForm
+    // 🔹 ২য়: AI intent না দিলেও, user order মেসেজ দিলে fallback
     if (!orderHandled && orderIntentByUser) {
       let fallbackProduct: any = null;
 
