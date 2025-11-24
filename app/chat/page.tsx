@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 
 import ChatBubble from "@/components/ChatBubble";
@@ -71,7 +71,10 @@ function isOrderMessage(text: string) {
   );
 }
 
-export default function ChatPage() {
+/**
+ * আসল চ্যাট লজিক + useSearchParams এখানে থাকবে
+ */
+function ChatInner() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pendingOrder, setPendingOrder] = useState<PendingOrder | null>(null);
@@ -103,12 +106,12 @@ export default function ChatPage() {
             prev.length
               ? prev
               : [
-                  {
-                    id: createId(),
-                    from: "bot",
-                    text: `আপনি "${p.name_bn}" প্রোডাক্ট থেকে এসেছেন 🥰 এই প্রোডাক্ট সম্পর্কে কিছু জানতে চাইলে লিখুন, আর অর্ডার করতে চাইলে লিখুন: "apu eta order dibo" বা "eta nibo".`,
-                  },
-                ]
+                {
+                  id: createId(),
+                  from: "bot",
+                  text: `আপনি "${p.name_bn}" প্রোডাক্ট থেকে এসেছেন 🥰 এই প্রোডাক্ট সম্পর্কে কিছু জানতে চাইলে লিখুন, আর অর্ডার করতে চাইলে লিখুন: "apu eta order dibo" বা "eta nibo".`,
+                },
+              ]
           );
         }
       } catch (e) {
@@ -334,5 +337,23 @@ export default function ChatPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * এখান থেকে আমরা শুধু Suspense wrapper দিচ্ছি,
+ * যাতে useSearchParams hook Suspense boundary এর ভিতরে চলে।
+ */
+export default function ChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100 text-sm">
+          Chat loading...
+        </div>
+      }
+    >
+      <ChatInner />
+    </Suspense>
   );
 }
