@@ -7,8 +7,6 @@ import ProductCard from "@/components/ProductCard";
 import ChatBubble from "@/components/ChatBubble";
 import { ChatAIResponse } from "@/types/chat";
 
-export const dynamic = "force-dynamic"; // ⭐ এটা নতুন
-
 interface Message {
   id: string;
   from: "user" | "bot";
@@ -45,6 +43,27 @@ function createId() {
   return Math.random().toString(36).slice(2);
 }
 
+// ✅ common order keyword detector (Bangla + English mix)
+function isOrderMessage(text: string) {
+  const t = text.toLowerCase();
+  return (
+    t.includes("order") ||
+    t.includes("orde") ||
+    t.includes("order dibo") ||
+    t.includes("order korbo") ||
+    t.includes("orde dibo") ||
+    t.includes("orde korbo") ||
+    t.includes("অর্ডার") ||
+    t.includes("order dibo") ||
+    t.includes("eta nibo") ||
+    t.includes("eta nebo") ||
+    t.includes("এটা নিব") ||
+    t.includes("এটা নেব") ||
+    t.includes("niye nibo") ||
+    t.includes("nibo")
+  );
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -73,7 +92,7 @@ export default function ChatPage() {
         if (p) {
           setSelectedProduct(p);
 
-          // যদি আগে কোনো মেসেজ না থাকে, একটা ছোট গাইড মেসেজ দেই
+          // আগে কোনো মেসেজ না থাকলে, প্রোডাক্টের নামসহ গাইড মেসেজ দেই
           setMessages((prev) =>
             prev.length
               ? prev
@@ -81,8 +100,7 @@ export default function ChatPage() {
                   {
                     id: createId(),
                     from: "bot",
-                    text:
-                      "এই প্রোডাক্ট সম্পর্কে কিছু জানতে চাইলে লিখুন, আর অর্ডার করতে চাইলে লিখুন: apu eta order dibo 💚",
+                    text: `আপনি "${p.name_bn}" প্রোডাক্ট থেকে এসেছেন 🥰 এই প্রোডাক্ট সম্পর্কে কিছু জানতে চাইলে লিখুন, আর অর্ডার করতে চাইলে লিখুন: "apu eta order dibo" বা "eta nibo".`,
                   },
                 ]
           );
@@ -98,15 +116,43 @@ export default function ChatPage() {
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
 
+    const userText = input.trim();
+    const orderIntentByUser = isOrderMessage(userText);
+
     const newUserMsg: Message = {
       id: createId(),
       from: "user",
-      text: input,
+      text: userText,
     };
 
     const newMessages = [...messages, newUserMsg];
     setMessages(newMessages);
     setInput("");
+
+    // 🔹 যদি user স্পষ্টভাবে "order" টাইপ কিছু বলে এবং
+    // URL থেকে আসা selectedProduct থাকে → direct OrderForm খুলে দেই, AI call ছাড়াই
+    if (orderIntentByUser && selectedProduct) {
+      setPendingOrder({
+        productId: selectedProduct.productId,
+        quantity: 1,
+        productName: selectedProduct.name_bn,
+        price: selectedProduct.price,
+      });
+
+      // উপরে একটা ছোট bot messageও যোগ করি
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: createId(),
+          from: "bot",
+          text:
+            "ঠিক আছে আপু, নিচের ফর্মটি পূরণ করে অর্ডার কনফার্ম করে দিন 🥰",
+        },
+      ]);
+
+      return;
+    }
+
     setLoading(true);
 
     const res = await fetch("/api/chat", {
@@ -121,6 +167,9 @@ export default function ChatPage() {
     });
 
     const data: ChatAIResponse = await res.json();
+
+    // 🔹 ১ম প্রায়োরিটি: AI যদি নিজে থেকে ASK_ORDER_FORM দেয়
+    let orderHandled = false;
 
     if (data.intent === "ASK_ORDER_FORM" && data.selected_products?.length) {
       const sel = data.selected_products[0];
@@ -149,8 +198,34 @@ export default function ChatPage() {
         productName: matchedProduct.name_bn,
         price: matchedProduct.price,
       });
+
+      orderHandled = true;
     }
 
+    // 🔹 ২য় প্রায়োরিটি: AI intent না দিলেও, user যদি order মেসেজ পাঠায়
+    // এবং AI একটাই প্রোডাক্ট suggest করে → সেইটার ওপর OrderForm
+    if (!orderHandled && orderIntentByUser) {
+      let fallbackProduct: any = null;
+
+      if (selectedProduct) {
+        fallbackProduct = selectedProduct;
+      } else if (data.products && data.products.length === 1) {
+        fallbackProduct = data.products[0];
+      }
+
+      if (fallbackProduct) {
+        setPendingOrder({
+          productId: fallbackProduct.productId,
+          quantity: 1,
+          productName: fallbackProduct.name_bn,
+          price: fallbackProduct.price,
+        });
+
+        orderHandled = true;
+      }
+    }
+
+    // 🔹 Chat message add করি (AI reply)
     setMessages((prev) => [
       ...prev,
       {
