@@ -71,6 +71,50 @@ function isOrderMessage(text: string) {
   );
 }
 
+// ✅ "আরো প্রোডাক্ট / অন্য ডিজাইন" keyword detector
+function isMoreProductsMessage(text: string) {
+  const t = text.toLowerCase();
+  return (
+    t.includes("aro product") ||
+    t.includes("aro prodect") ||
+    t.includes("আরো প্রোডাক্ট") ||
+    t.includes("আরও প্রোডাক্ট") ||
+    t.includes("onno product") ||
+    t.includes("onnno product") ||
+    t.includes("onno design") ||
+    t.includes("আরো ডিজাইন") ||
+    t.includes("another product") ||
+    t.includes("more product") ||
+    t.includes("aro dekhao") ||
+    t.includes("aro dakaw") ||
+    t.includes("aro dekhbo") ||
+    t.includes("আরো দেখাবেন") ||
+    t.includes("aro dekhate")
+  );
+}
+
+// ✅ "order pore korbo / ekhon na" type cancel detector
+function isCancelOrderMessage(text: string) {
+  const t = text.toLowerCase();
+  return (
+    t.includes("pore order korbo") ||
+    t.includes("pora order korbo") ||
+    t.includes("order pore korbo") ||
+    t.includes("order pora korbo") ||
+    t.includes("later order") ||
+    t.includes("later korbo") ||
+    t.includes("pore korbo") ||
+    t.includes("pora korbo") ||
+    t.includes("ekhon na") ||
+    t.includes("akhon na") ||
+    t.includes("ekhon order korbo na") ||
+    t.includes("akhon order korbo na") ||
+    t.includes("order bad") ||
+    t.includes("order lagbe na") ||
+    t.includes("lagbe na")
+  );
+}
+
 /**
  * আসল চ্যাট লজিক + useSearchParams এখানে থাকবে
  */
@@ -106,12 +150,12 @@ function ChatInner() {
             prev.length
               ? prev
               : [
-                {
-                  id: createId(),
-                  from: "bot",
-                  text: `আপনি "${p.name_bn}" প্রোডাক্ট থেকে এসেছেন 🥰 এই প্রোডাক্ট সম্পর্কে কিছু জানতে চাইলে লিখুন, আর অর্ডার করতে চাইলে লিখুন: "apu eta order dibo" বা "eta nibo".`,
-                },
-              ]
+                  {
+                    id: createId(),
+                    from: "bot",
+                    text: `আপনি "${p.name_bn}" প্রোডাক্ট থেকে এসেছেন 🥰 এই প্রোডাক্ট সম্পর্কে কিছু জানতে চাইলে লিখুন, আর অর্ডার করতে চাইলে লিখুন: "apu eta order dibo" বা "eta nibo".`,
+                  },
+                ]
           );
         }
       } catch (e) {
@@ -127,7 +171,9 @@ function ChatInner() {
     if (!input.trim() || loading) return;
 
     const userText = input.trim();
-    const orderIntentByUser = isOrderMessage(userText);
+    const cancelOrderIntent = isCancelOrderMessage(userText);
+    const moreProductsIntentByUser = isMoreProductsMessage(userText);
+    const orderIntentByUser = !cancelOrderIntent && isOrderMessage(userText);
 
     const newUserMsg: Message = {
       id: createId(),
@@ -138,6 +184,36 @@ function ChatInner() {
     const newMessages = [...messages, newUserMsg];
     setMessages(newMessages);
     setInput("");
+
+    // 🔹 যদি আগে থেকেই order form খোলা থাকে এবং user বলে "পরে করবো / লাগবে না"
+    if (cancelOrderIntent && pendingOrder) {
+      setPendingOrder(null);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: createId(),
+          from: "bot",
+          text:
+            "কোনো সমস্যা নেই আপু 🥰 আপনি চাইলে পরে যেকোনো সময় লিখে আবার অর্ডার করতে পারবেন। এখন যেটা দেখতে চান বা জানতে চান, সেটাও লিখে বলতে পারেন।",
+        },
+      ]);
+      return;
+    }
+
+    // 🔹 যদি order form খোলা থাকে এবং user বলে "আরো প্রোডাক্ট / অন্য ডিজাইন দেখান"
+    if (moreProductsIntentByUser && pendingOrder) {
+      setPendingOrder(null);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: createId(),
+          from: "bot",
+          text:
+            "ঠিক আছে আপু, আগের অর্ডার ফর্মটা ক্যানসেল করে দিলাম। এখন আবার লিখে বলুন কী ধরনের প্রোডাক্ট দেখতে চান, আমি নতুন ডিজাইন সাজেস্ট করি 🥰",
+        },
+      ]);
+      // return করলাম না → যেন AI-এর কাছেও message যায় এবং নতুন প্রোডাক্ট সাজেস্ট করে
+    }
 
     // 🔹 User order টাইপ কিছু বললে, আর selectedProduct থাকলে → সরাসরি OrderForm
     if (orderIntentByUser && selectedProduct) {
@@ -286,7 +362,7 @@ function ChatInner() {
               {m.aiMeta?.intent === "SHOW_PRODUCTS" &&
                 m.aiMeta.products?.map((p) => (
                   <div key={p.productId} className="mt-2">
-                    <ProductCard product={p} />
+                    <ProductCard product={p as any} />
                   </div>
                 ))}
             </ChatBubble>
