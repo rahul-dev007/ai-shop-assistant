@@ -1,3 +1,4 @@
+// components/OrderForm.tsx
 "use client";
 
 import { useState } from "react";
@@ -9,7 +10,8 @@ interface OrderFormProps {
     productName?: string;
     price?: number;
   };
-  onSubmitted?: (payload: { orderId?: string; messageBn: string }) => void;
+  // success hole parent ke just notify (form close korar jonno)
+  onSubmitted?: () => void;
 }
 
 export default function OrderForm({ selected, onSubmitted }: OrderFormProps) {
@@ -19,14 +21,14 @@ export default function OrderForm({ selected, onSubmitted }: OrderFormProps) {
   const [address, setAddress] = useState("");
   const [quantity, setQuantity] = useState(selected.quantity || 1);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
+
     setLoading(true);
     setError(null);
-    setMessage(null);
 
     try {
       const res = await fetch("/api/order", {
@@ -47,22 +49,20 @@ export default function OrderForm({ selected, onSubmitted }: OrderFormProps) {
 
       if (!res.ok) {
         setError(data.error || "অর্ডার করতে সমস্যা হয়েছে");
-      } else {
-        const msg =
-          data.messageBn ||
-          "আপনার অর্ডার কনফার্ম হয়েছে, ইনশাআল্লাহ শীঘ্রই কনট্যাক্ট করবো 🥰";
-
-        setMessage(msg);
-        setFullName("");
-        setPhone("");
-        setEmail("");
-        setAddress("");
-
-        if (onSubmitted) {
-          onSubmitted({ orderId: data.orderId, messageBn: msg });
-        }
+        return;
       }
+
+      // ✅ এখান থেকে chat message backend already handle করেছে
+      // আমরা শুধু local form reset + parent notify করব
+      setFullName("");
+      setPhone("");
+      setEmail("");
+      setAddress("");
+      setQuantity(selected.quantity || 1);
+
+      onSubmitted?.();
     } catch (err: any) {
+      console.error("Order submit error:", err);
       setError("সার্ভার এরর হয়েছে, আবার চেষ্টা করুন");
     } finally {
       setLoading(false);
@@ -70,86 +70,115 @@ export default function OrderForm({ selected, onSubmitted }: OrderFormProps) {
   };
 
   return (
-    <div className="border-t border-slate-800 p-3 bg-slate-900 text-slate-100 space-y-2">
-      <h3 className="font-semibold text-sm mb-1">
-        🧾 অর্ডার ফর্ম
-        {selected.productName ? ` – ${selected.productName}` : ""}
-      </h3>
+    <div className="border-t border-slate-800 bg-slate-950/95 px-3 py-2">
+      <div className="text-[11px] text-slate-200 mb-1">
+        আপনি{" "}
+        <span className="font-semibold text-emerald-300">
+          “{selected.productName || "সিলেক্ট করা প্রোডাক্ট"}”
+        </span>{" "}
+        প্রোডাক্টটির অর্ডার কনফার্ম করতে যাচ্ছেন 👇
+      </div>
 
-      {selected.price && (
-        <p className="text-xs text-slate-300">
-          আনুমানিক দাম: {selected.price} টাকা (প্রতি পিস)
-        </p>
-      )}
+      <form
+        onSubmit={handleSubmit}
+        className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 space-y-2 text-[11px]"
+      >
+        <div className="font-semibold text-slate-100 mb-1">
+          🧾 অর্ডার ফর্ম
+          {selected.productName ? ` – ${selected.productName}` : ""}
+        </div>
 
-      <form onSubmit={handleSubmit} className="space-y-2 text-sm">
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <label className="block text-xs mb-1">নাম *</label>
+        {selected.price && (
+          <div className="text-slate-400 mb-1">
+            আনুমানিক দাম:{" "}
+            <span className="font-semibold text-emerald-300">
+              {selected.price} টাকা
+            </span>{" "}
+            (প্রতি পিস)
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <label className="block text-slate-300">নাম *</label>
             <input
-              className="w-full border border-slate-700 rounded px-2 py-1 text-sm bg-slate-800 text-slate-100"
+              className="w-full rounded-md bg-slate-950 border border-slate-700 px-2 py-1.5 text-[11px]"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               required
               placeholder="আপনার নাম লিখুন"
             />
           </div>
-          <div className="w-24">
-            <label className="block text-xs mb-1">পরিমাণ</label>
+
+          <div className="space-y-1">
+            <label className="block text-slate-300">পরিমাণ</label>
             <input
               type="number"
               min={1}
-              className="w-full border border-slate-700 rounded px-2 py-1 text-sm bg-slate-800 text-slate-100"
+              className="w-full rounded-md bg-slate-950 border border-slate-700 px-2 py-1.5 text-[11px]"
               value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value) || 1)}
+              onChange={(e) =>
+                setQuantity(Math.max(1, Number(e.target.value) || 1))
+              }
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-slate-300">মোবাইল নাম্বার *</label>
+            <input
+              className="w-full rounded-md bg-slate-950 border border-slate-700 px-2 py-1.5 text-[11px]"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              required
+              placeholder="01XXXXXXXXX"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-slate-300">ইমেইল (optional)</label>
+            <input
+              type="email"
+              className="w-full rounded-md bg-slate-950 border border-slate-700 px-2 py-1.5 text-[11px]"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="email@example.com"
             />
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs mb-1">মোবাইল নাম্বার *</label>
-          <input
-            className="w-full border border-slate-700 rounded px-2 py-1 text-sm bg-slate-800 text-slate-100"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            required
-            placeholder="01XXXXXXXXX"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs mb-1">ইমেইল (optional)</label>
-          <input
-            type="email"
-            className="w-full border border-slate-700 rounded px-2 py-1 text-sm bg-slate-800 text-slate-100"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="email@example.com"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs mb-1">ঠিকানা *</label>
+        <div className="space-y-1">
+          <label className="block text-slate-300">ঠিকানা *</label>
           <textarea
-            className="w-full border border-slate-700 rounded px-2 py-1 text-sm bg-slate-800 text-slate-100"
+            className="w-full rounded-md bg-slate-950 border border-slate-700 px-2 py-1.5 text-[11px] min-h-[60px]"
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             required
             placeholder="পুরো ঠিকানা লিখুন"
-            rows={2}
           />
         </div>
 
-        {error && <p className="text-xs text-red-400">{error}</p>}
-        {message && <p className="text-xs text-emerald-400">{message}</p>}
+        {error && (
+          <p className="text-[10px] text-red-400 mt-1">
+            {error}
+          </p>
+        )}
 
         <button
           type="submit"
           disabled={loading}
-          className="w-full mt-1 border border-emerald-500 rounded py-1.5 text-sm font-medium bg-emerald-500 text-slate-950 disabled:opacity-60"
+          className="mt-1 w-full rounded-full bg-emerald-500 text-slate-900 font-semibold py-1.5 text-[11px] hover:bg-emerald-400 disabled:opacity-60"
         >
           {loading ? "অর্ডার হচ্ছে..." : "অর্ডার কনফার্ম করুন"}
         </button>
+
+        <p className="mt-1 text-[10px] text-slate-400">
+          আর এমন আরো ডিজাইন বা অন্য কালার দেখতে চাইলে আমাকে মেসেজে লিখুন —
+          যেমন{" "}
+          <span className="text-emerald-300">
+            "aro design dakhao" / "onno color dekhai"
+          </span>{" "}
+          💚
+        </p>
       </form>
     </div>
   );

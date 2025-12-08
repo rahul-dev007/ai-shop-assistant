@@ -15,7 +15,7 @@ export async function callGemini(
   if (!apiKey) {
     return {
       reply_bn: "AI key ঠিক নেই। পরে চেষ্টা করুন।",
-      intent: "CHAT",
+      intent: "NONE", // ✅ আগে ছিল "CHAT"
     };
   }
 
@@ -23,7 +23,6 @@ export async function callGemini(
   const url =
     "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=" +
     apiKey;
-
 
   const historyText = previousMessages
     .map((m) => `${m.role === "user" ? "USER" : "AI"}: ${m.content}`)
@@ -64,7 +63,7 @@ ${userMessage}
       return {
         reply_bn:
           "দুঃখিত, AI সার্ভার থেকে রেসপন্স পাওয়া যায়নি। পরে আবার চেষ্টা করুন।",
-        intent: "CHAT",
+        intent: "NONE", // ✅ আগে ছিল "CHAT"
       };
     }
 
@@ -80,13 +79,14 @@ ${userMessage}
       .trim();
 
     try {
-      return JSON.parse(cleaned);
+      // Gemini যেই JSON ফেরত দেবে, direct parse করে পাঠাচ্ছি
+      return JSON.parse(cleaned) as ChatAIResponse;
     } catch (e) {
       console.error("JSON parse failed:", cleaned);
       return {
         reply_bn:
           "দুঃখিত, আমি ঠিক মতো বুঝতে পারিনি। আরেকবার একটু পরিষ্কার করে লিখবেন?",
-        intent: "CHAT",
+        intent: "NONE", // ✅ আগে ছিল "CHAT"
       };
     }
   } catch (e: any) {
@@ -94,7 +94,7 @@ ${userMessage}
     return {
       reply_bn:
         "দুঃখিত, AI কল করার সময় সমস্যা হয়েছে। একটু পরে আবার চেষ্টা করুন।",
-      intent: "CHAT",
+      intent: "NONE", // ✅ আগে ছিল "CHAT"
     };
   }
 }

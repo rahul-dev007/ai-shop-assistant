@@ -1,10 +1,15 @@
-import { NextResponse } from "next/server";
+// app/api/order/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import Order from "@/lib/models/Order";
 import { isValidObjectId } from "mongoose";
 import { sendOrderEmail } from "@/lib/email";
 
-export async function POST(req: Request) {
+// 🔹 chat models import
+import { getChatSessionModel } from "@/lib/models/ChatSession";
+import { getChatMessageModel } from "@/lib/models/ChatMessage";
+
+export async function POST(req: NextRequest) {
   try {
     await connectDB();
     const body = await req.json();
@@ -17,7 +22,15 @@ export async function POST(req: Request) {
       email,
       address,
       source,
-    } = body;
+    } = body as {
+      productId: string;
+      quantity?: number;
+      fullName: string;
+      phone: string;
+      email?: string;
+      address: string;
+      source?: string;
+    };
 
     if (!productId || !isValidObjectId(productId)) {
       console.warn("Invalid productId from client:", productId);
@@ -43,7 +56,11 @@ export async function POST(req: Request) {
       source: source || "facebook",
     });
 
-    // 🔹 Order save সফল হওয়ার পর email পাঠাই
+    // ✅ success message (Bangla) – ek jaygay define kore dibo
+    const successMessageBn =
+      "আপনার অর্ডার কনফার্ম হয়েছে 🥰 ইনশাআল্লাহ খুব দ্রুত আপনাকে যোগাযোগ করা হবে। ইমেইলেও কনফার্মেশন পাঠানো হয়েছে (যদি ইমেইল দিয়ে থাকেন)।";
+
+    // 🔹 Order save সফল হওয়ার পর email পাঠাই (best-effort)
     try {
       await sendOrderEmail({
         toCustomer: email || null,
@@ -54,17 +71,43 @@ export async function POST(req: Request) {
         quantity: safeQuantity,
         orderId: order._id.toString(),
       });
-
     } catch (mailErr) {
       console.warn("Order saved but email send failed:", mailErr);
-      // ইচ্ছা করলে এখানে কিছু না করলেও চলে, শুধু warning
+    }
+
+    // 🔹 Chat side: একই success মেসেজটাকে chat history তেও সংরক্ষণ করি
+    try {
+      const sessionKey = req.cookies.get("hb_session")?.value || null;
+
+      if (sessionKey) {
+        const ChatSession = await getChatSessionModel();
+        const ChatMessage = await getChatMessageModel();
+
+        const session = await ChatSession.findOne({ sessionKey });
+        if (session) {
+          await ChatMessage.create({
+            sessionId: session._id,
+            role: "assistant",
+            senderType: "ai",
+            content: successMessageBn,
+          });
+
+          session.lastMessageAt = new Date();
+          await session.save();
+        }
+      }
+    } catch (chatErr) {
+      console.warn(
+        "Order saved but chat success message failed:",
+        chatErr
+      );
+      // chat message fail holeo order+email already done, tai here just warn
     }
 
     return NextResponse.json(
       {
         orderId: order._id.toString(),
-        messageBn:
-          "আপনার অর্ডার কনফার্ম হয়েছে 🥰 ইনশাআল্লাহ খুব দ্রুত আপনাকে যোগাযোগ করা হবে। ইমেইলেও কনফার্মেশন পাঠানো হয়েছে (যদি ইমেইল দিয়ে থাকেন)।",
+        messageBn: successMessageBn,
       },
       { status: 201 }
     );

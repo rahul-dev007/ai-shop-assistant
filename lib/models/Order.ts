@@ -1,18 +1,16 @@
-import { Schema, models, model, type Document, type Model, Types } from "mongoose";
-
+// models/Order.ts
+import { Schema, model, models, type Document, type Model } from "mongoose";
 import { connectDB } from "@/lib/db";
 
-export type OrderStatus = "pending" | "confirmed" | "cancelled";
-
 export interface IOrder extends Document {
-  productId: Types.ObjectId;
+  productId: Schema.Types.ObjectId;
   quantity: number;
   fullName: string;
   phone: string;
   email?: string;
   address: string;
-  source: string;
-  status: OrderStatus;
+  source?: string; // e.g. "facebook", "instagram", "website"
+  status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,15 +18,15 @@ export interface IOrder extends Document {
 const OrderSchema = new Schema<IOrder>(
   {
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
-    quantity: { type: Number, required: true, default: 1 },
+    quantity: { type: Number, required: true, min: 1 },
     fullName: { type: String, required: true },
     phone: { type: String, required: true },
     email: { type: String },
     address: { type: String, required: true },
-    source: { type: String, default: "facebook" },
+    source: { type: String },
     status: {
       type: String,
-      enum: ["pending", "confirmed", "cancelled"],
+      enum: ["pending", "confirmed", "shipped", "delivered", "cancelled"],
       default: "pending",
     },
   },

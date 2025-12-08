@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { ReactNode } from "react";
 import Navbar from "@/components/Navbar";
+import ReduxProvider from "@/components/ReduxProvider";
 
 export const metadata = {
   title: "Hope Boutique · AI Assistant",
@@ -11,11 +12,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="bn">
       <body className="min-h-screen bg-slate-950 text-slate-50">
-        {/* Global Navbar */}
-        <Navbar />
+        <ReduxProvider>
+          <Navbar />
 
-        {/* Page content */}
-        {children}
+          {children}
+        </ReduxProvider>
       </body>
     </html>
   );
