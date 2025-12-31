@@ -1,16 +1,30 @@
 // lib/pusher/client.ts
 import Pusher from "pusher-js";
 
-if (!process.env.NEXT_PUBLIC_PUSHER_KEY) {
-  throw new Error("Missing NEXT_PUBLIC_PUSHER_KEY");
-}
-if (!process.env.NEXT_PUBLIC_PUSHER_CLUSTER) {
-  throw new Error("Missing NEXT_PUBLIC_PUSHER_CLUSTER");
-}
+let client: Pusher | null = null;
 
-// (Optional but recommended) keep noisy logs off in prod
-Pusher.logToConsole = process.env.NODE_ENV === "development";
+/**
+ * Returns a singleton Pusher client on browser only.
+ * If env is missing, returns null (so build never crashes).
+ */
+export function getPusherClient(): Pusher | null {
+  // SSR/build time এ Pusher client init করবো না
+  if (typeof window === "undefined") return null;
 
-export const pusherClient = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
-  cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER,
-});
+  const key = process.env.NEXT_PUBLIC_PUSHER_KEY;
+  const cluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER;
+
+  if (!key || !cluster) return null;
+
+  // dev এ লগ চাইলে only dev
+  Pusher.logToConsole = process.env.NODE_ENV === "development";
+
+  if (!client) {
+    client = new Pusher(key, {
+      cluster,
+      forceTLS: true,
+    });
+  }
+
+  return client;
+}

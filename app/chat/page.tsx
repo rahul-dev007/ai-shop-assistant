@@ -3,11 +3,10 @@
 
 import dynamic from "next/dynamic";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { useRouter } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 
 import ChatBubble from "@/components/ChatBubble";
-import { pusherClient } from "@/lib/pusher/client";
+import { getPusherClient } from "@/lib/pusher/client";
 import type { ChatAIResponse, Message, PendingOrder, Product } from "@/types/chat";
 
 const OrderForm = dynamic(() => import("@/components/OrderForm"), { ssr: false });
@@ -154,12 +153,18 @@ function ChatInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 🔴 Realtime updates via Pusher
+  // 🔴 Realtime updates via Pusher (SAFE)
   useEffect(() => {
     if (!sessionKey) return;
 
+    const pusher = getPusherClient();
+    if (!pusher) {
+      // env missing / SSR build → realtime disabled, but app will still work via refresh/history
+      return;
+    }
+
     const channelName = `chat-${sessionKey}`;
-    const channel = pusherClient.subscribe(channelName);
+    const channel = pusher.subscribe(channelName);
 
     const handler = (payload: {
       _id: string;
@@ -172,8 +177,7 @@ function ChatInner() {
       const incoming: Message = {
         id: payload._id,
         from: payload.role === "user" ? "user" : "bot",
-        senderType: (payload.senderType ||
-          (payload.role === "user" ? "user" : "ai")) as any,
+        senderType: (payload.senderType || (payload.role === "user" ? "user" : "ai")) as any,
         text: payload.content,
         createdAt: payload.createdAt,
         aiMeta: payload.aiMeta,
@@ -183,6 +187,7 @@ function ChatInner() {
         if (prev.some((m) => m.id === incoming.id)) return prev;
 
         const next = [...prev, incoming];
+        // ✅ stable order (jump কমে)
         next.sort((a, b) => {
           const ta = new Date(a.createdAt).getTime();
           const tb = new Date(b.createdAt).getTime();
@@ -197,7 +202,7 @@ function ChatInner() {
 
     return () => {
       channel.unbind("new-message", handler);
-      pusherClient.unsubscribe(channelName);
+      pusher.unsubscribe(channelName);
     };
   }, [sessionKey]);
 
@@ -219,7 +224,7 @@ function ChatInner() {
         if (p) {
           setCurrentProduct(p);
 
-          // ✅ আপনার আগের behavior: product open হলে form ready
+          // ✅ product open হলে form ready
           setPendingOrder({
             productId: p.productId,
             quantity: 1,
@@ -491,7 +496,7 @@ RULES:
               // ✅ 2) prevent product reload
               setOrderJustSubmitted(true);
 
-              // ✅ 3) URL clean (HARD) - router.replace কখনো delay করে, তাই hard replace
+              // ✅ 3) URL clean (hard)
               if (typeof window !== "undefined") {
                 window.history.replaceState({}, "", "/chat");
               } else {

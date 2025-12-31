@@ -7,8 +7,6 @@ import { sendOrderEmail } from "@/lib/email";
 
 import { getChatSessionModel } from "@/lib/models/ChatSession";
 import { getChatMessageModel } from "@/lib/models/ChatMessage";
-
-// ✅ ADD THIS
 import { pusherServer } from "@/lib/pusher/server";
 
 export async function POST(req: NextRequest) {
@@ -16,7 +14,16 @@ export async function POST(req: NextRequest) {
     await connectDB();
     const body = await req.json();
 
-    const { productId, quantity, fullName, phone, email, address, source } = body as {
+    const {
+      productId,
+      quantity,
+      fullName,
+      phone,
+      email,
+      address,
+      source,
+      sessionKey: bodySessionKey,
+    } = body as {
       productId: string;
       quantity?: number;
       fullName: string;
@@ -24,6 +31,7 @@ export async function POST(req: NextRequest) {
       email?: string;
       address: string;
       source?: string;
+      sessionKey?: string; // ✅ add
     };
 
     if (!productId || !isValidObjectId(productId)) {
@@ -48,6 +56,7 @@ export async function POST(req: NextRequest) {
     const successMessageBn =
       "আপনার অর্ডার কনফার্ম হয়েছে 🥰 ইনশাআল্লাহ খুব দ্রুত আপনাকে যোগাযোগ করা হবে। ইমেইলেও কনফার্মেশন পাঠানো হয়েছে (যদি ইমেইল দিয়ে থাকেন)।";
 
+    // Email best effort
     try {
       await sendOrderEmail({
         toCustomer: email || null,
@@ -62,9 +71,11 @@ export async function POST(req: NextRequest) {
       console.warn("Order saved but email send failed:", mailErr);
     }
 
-    // ✅ Chat message save + PUSHER broadcast
+    // ✅ Chat message save + Pusher broadcast
     try {
-      const sessionKey = req.cookies.get("hb_session")?.value || null;
+      const sessionKey =
+        bodySessionKey || req.cookies.get("hb_session")?.value || null;
+
       if (sessionKey) {
         const ChatSession = await getChatSessionModel();
         const ChatMessage = await getChatMessageModel();
@@ -81,7 +92,6 @@ export async function POST(req: NextRequest) {
           session.lastMessageAt = new Date();
           await session.save();
 
-          // ✅ broadcast realtime
           await pusherServer.trigger(`chat-${sessionKey}`, "new-message", {
             _id: saved._id.toString(),
             role: "assistant",
