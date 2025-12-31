@@ -147,6 +147,7 @@ function ChatInner() {
     };
 
     fetchHistory();
+
     return () => {
       cancelled = true;
     };
@@ -158,10 +159,7 @@ function ChatInner() {
     if (!sessionKey) return;
 
     const pusher = getPusherClient();
-    if (!pusher) {
-      // env missing / SSR build → realtime disabled, but app will still work via refresh/history
-      return;
-    }
+    if (!pusher) return; // ✅ env missing হলে silently skip
 
     const channelName = `chat-${sessionKey}`;
     const channel = pusher.subscribe(channelName);
@@ -187,7 +185,6 @@ function ChatInner() {
         if (prev.some((m) => m.id === incoming.id)) return prev;
 
         const next = [...prev, incoming];
-        // ✅ stable order (jump কমে)
         next.sort((a, b) => {
           const ta = new Date(a.createdAt).getTime();
           const tb = new Date(b.createdAt).getTime();
@@ -224,7 +221,6 @@ function ChatInner() {
         if (p) {
           setCurrentProduct(p);
 
-          // ✅ product open হলে form ready
           setPendingOrder({
             productId: p.productId,
             quantity: 1,
@@ -503,10 +499,10 @@ RULES:
                 router.replace("/chat");
               }
 
-              // ✅ 4) scroll (confirm message pusher দিয়ে আসবে)
+              // ✅ 4) scroll
               setTimeout(() => scrollToBottom(true), 180);
 
-              // ✅ 5) later allow product load again
+              // ✅ 5) allow product load again later
               setTimeout(() => setOrderJustSubmitted(false), 800);
             }}
           />

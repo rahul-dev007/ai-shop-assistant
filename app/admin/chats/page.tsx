@@ -1,4 +1,3 @@
-// app/admin/chats/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -6,7 +5,7 @@ import {
   useGetChatSessionsQuery,
   useGetChatDetailQuery,
 } from "@/lib/adminApi";
-import { pusherClient } from "@/lib/pusher/client";
+import { getPusherClient } from "@/lib/pusher/client";
 
 function formatDateTime(dateStr?: string) {
   if (!dateStr) return "-";
@@ -51,7 +50,6 @@ type AdminChatDetail = {
 };
 
 export default function AdminChatsPage() {
-  // ⭐ Sessions list – প্রতি ৮ সেকেন্ডে refresh (OK)
   const {
     data: sessionsData,
     isLoading,
@@ -63,7 +61,6 @@ export default function AdminChatsPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // ✅ Detail: polling বন্ধ (realtime pusher দিয়ে হবে)
   const {
     data: chatDetailData,
     isLoading: detailLoading,
@@ -83,11 +80,9 @@ export default function AdminChatsPage() {
 
   const aiDisabled = chatDetail?.session?.aiDisabled ?? false;
 
-  // ✅ Local realtime state for selected chat messages
   const [liveMessages, setLiveMessages] = useState<AdminChatMessage[]>([]);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // whenever chatDetail changes (new session selected / fetched), sync liveMessages
   useEffect(() => {
     if (!chatDetail?.messages) return;
     setLiveMessages(chatDetail.messages);
@@ -98,19 +93,26 @@ export default function AdminChatsPage() {
     return sessions.find((s) => s._id === selectedId) ?? null;
   }, [selectedId, sessions]);
 
-  const selectedSessionKey = selectedSession?.sessionKey ?? chatDetail?.session?.sessionKey ?? null;
+  const selectedSessionKey =
+    selectedSession?.sessionKey ?? chatDetail?.session?.sessionKey ?? null;
 
   const scrollToBottom = () => {
     if (!bottomRef.current) return;
     bottomRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
   };
 
-  // ✅ Subscribe to Pusher for selected chat
+  // ✅ Subscribe to Pusher for selected chat (SAFE)
   useEffect(() => {
     if (!selectedSessionKey) return;
 
+    const pusher = getPusherClient();
+    if (!pusher) {
+      // env missing / build time → realtime off, but page will still work
+      return;
+    }
+
     const channelName = `chat-${selectedSessionKey}`;
-    const channel = pusherClient.subscribe(channelName);
+    const channel = pusher.subscribe(channelName);
 
     const handler = (payload: {
       _id: string;
@@ -132,8 +134,6 @@ export default function AdminChatsPage() {
         return [...prev, incoming];
       });
 
-      // update sessions list top info (optional: just refetch)
-      // keep it light: refetch sessions every now and then is already on
       setTimeout(scrollToBottom, 50);
     };
 
@@ -141,11 +141,10 @@ export default function AdminChatsPage() {
 
     return () => {
       channel.unbind("new-message", handler);
-      pusherClient.unsubscribe(channelName);
+      pusher.unsubscribe(channelName);
     };
   }, [selectedSessionKey]);
 
-  // auto-scroll when liveMessages changes
   useEffect(() => {
     if (!selectedId) return;
     setTimeout(scrollToBottom, 50);
@@ -194,8 +193,6 @@ export default function AdminChatsPage() {
       }
 
       setReplyText("");
-      // detail refetch না করলেও চলবে (Pusher দিয়ে আসবে),
-      // তবুও safe রেখে দিলাম:
       await refetchDetail();
       await refetchSessions();
     } catch (err) {
@@ -262,7 +259,7 @@ export default function AdminChatsPage() {
                 </li>
               ))}
 
-              {sessionsData && sessionsData.length === 0 && (
+              {sessions.length === 0 && (
                 <li className="px-3 py-3 text-[11px] text-slate-400">
                   এখনো কোনো চ্যাট সেশন নেই।
                 </li>
@@ -273,7 +270,6 @@ export default function AdminChatsPage() {
 
         {/* RIGHT: messages view + reply box */}
         <div className="md:col-span-2 border border-slate-800 rounded-xl bg-slate-950/40 flex flex-col">
-          {/* Header + AI toggle */}
           <div className="px-3 py-2 border-b border-slate-800 text-xs font-medium text-slate-300 flex items-center justify-between gap-2">
             <div className="flex flex-col">
               <span>চ্যাট ডিটেইলস</span>
@@ -369,7 +365,6 @@ export default function AdminChatsPage() {
                 <div ref={bottomRef} />
               </div>
 
-              {/* Admin reply box */}
               <div className="border-t border-slate-800 p-2 flex gap-2 items-center">
                 <input
                   className="flex-1 bg-slate-900 text-slate-100 px-3 py-2 rounded-full text-xs placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
