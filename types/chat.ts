@@ -6,7 +6,7 @@ export interface Product {
   productId: string;
   name_bn: string;
   name_en?: string;
-  category: string;
+  category?: string;          // ✅ optional (canonical list এ নাও থাকতে পারে)
   price: number;
   tags?: string[];
   imageUrl?: string;
@@ -17,7 +17,7 @@ export interface Product {
 }
 
 export type ChatIntent =
-  | "NONE"                // 👈 নতুন fallback intent (callGemini এর সাথে match)
+  | "NONE"
   | "SMALL_TALK"
   | "ASK_PRODUCT_DETAILS"
   | "ASK_ORDER_FORM"
@@ -27,7 +27,7 @@ export type ChatIntent =
 
 export interface ChatAIResponse {
   reply_bn: string;
-  intent?: ChatIntent;    // AI intent আসতে-ও পারে, না-ও পারে → optional থাকা ঠিক আছে
+  intent?: ChatIntent;
   products?: Product[];
   selected_products?: {
     productId: string;
@@ -40,7 +40,7 @@ export interface Message {
   from: "user" | "bot";
   senderType: SenderType;
   text: string;
-  aiMeta?: ChatAIResponse;
+  aiMeta?: ChatAIResponse;     // ✅ Pusher payload থেকে এখন আসবে
   createdAt: string;
 }
 

@@ -4,21 +4,14 @@
 import dynamic from "next/dynamic";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 import ChatBubble from "@/components/ChatBubble";
-import type {
-  ChatAIResponse,
-  Message,
-  PendingOrder,
-  Product,
-} from "@/types/chat";
+import { pusherClient } from "@/lib/pusher/client";
+import type { ChatAIResponse, Message, PendingOrder, Product } from "@/types/chat";
 
-const OrderForm = dynamic(() => import("@/components/OrderForm"), {
-  ssr: false,
-});
-const ProductCard = dynamic(() => import("@/components/ProductCard"), {
-  ssr: false,
-});
+const OrderForm = dynamic(() => import("@/components/OrderForm"), { ssr: false });
+const ProductCard = dynamic(() => import("@/components/ProductCard"), { ssr: false });
 
 // ---------- helpers ----------
 function createId() {
@@ -39,6 +32,9 @@ function isOrderMessage(text: string) {
     t.includes("eta nibo") ||
     t.includes("eta nebo") ||
     t.includes("এটা নিব") ||
+    t.includes("i want to take it") ||
+    t.includes("i want to buy it") ||
+    t.includes("i want to buy") ||
     t.includes("এটা নেব")
   );
 }
@@ -59,10 +55,29 @@ function formatTime(dateStr?: string) {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("bn-BD", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return d.toLocaleTimeString("bn-BD", { hour: "numeric", minute: "2-digit" });
+}
+
+// ✅ better auto-scroll (render complete তারপর scroll)
+function useAutoScroll(dep: unknown) {
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollToBottom = (smooth = false) => {
+    if (!bottomRef.current) return;
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({
+        behavior: smooth ? "smooth" : "auto",
+        block: "end",
+      });
+    });
+  };
+
+  useEffect(() => {
+    scrollToBottom(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dep]);
+
+  return { bottomRef, scrollToBottom };
 }
 
 function ChatInner() {
@@ -72,18 +87,13 @@ function ChatInner() {
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
   const [sessionKey, setSessionKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [introSentForProduct, setIntroSentForProduct] = useState<string | null>(
-    null
-  );
 
+  // ✅ order submit হলে product fetch re-run block
+  const [orderJustSubmitted, setOrderJustSubmitted] = useState(false);
+
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const bottomRef = useRef<HTMLDivElement | null>(null);
-
-  // 💬 নতুন মেসেজ এলে সবসময় নিচে স্ক্রল (WhatsApp feel)
-  useEffect(() => {
-    if (!bottomRef.current) return;
-    bottomRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, pendingOrder, currentProduct]);
+  const { bottomRef, scrollToBottom } = useAutoScroll(messages.length);
 
   // 🧠 sessionKey localStorage থেকে
   useEffect(() => {
@@ -98,7 +108,7 @@ function ChatInner() {
     }
   }, []);
 
-  // 📜 chat history load (polling)
+  // 📜 chat history load (ONLY ONCE)
   useEffect(() => {
     let cancelled = false;
 
@@ -106,6 +116,7 @@ function ChatInner() {
       try {
         const res = await fetch("/api/chat/history");
         if (!res.ok) return;
+
         const data: {
           messages?: {
             _id: string;
@@ -113,6 +124,7 @@ function ChatInner() {
             content: string;
             senderType?: "user" | "ai" | "admin";
             createdAt: string;
+            aiMeta?: ChatAIResponse;
           }[];
         } = await res.json();
 
@@ -123,27 +135,76 @@ function ChatInner() {
           id: m._id,
           from: m.role === "user" ? "user" : "bot",
           text: m.content,
-          senderType: m.senderType || (m.role === "user" ? "user" : "ai"),
+          senderType: (m.senderType || (m.role === "user" ? "user" : "ai")) as any,
           createdAt: m.createdAt,
+          aiMeta: m.aiMeta,
         }));
 
         setMessages(mapped);
+        scrollToBottom(false);
       } catch (e) {
         console.error("History load failed:", e);
       }
     };
 
     fetchHistory();
-    const intervalId = setInterval(fetchHistory, 2500);
-
     return () => {
       cancelled = true;
-      clearInterval(intervalId);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 🔴 Realtime updates via Pusher
+  useEffect(() => {
+    if (!sessionKey) return;
+
+    const channelName = `chat-${sessionKey}`;
+    const channel = pusherClient.subscribe(channelName);
+
+    const handler = (payload: {
+      _id: string;
+      role: "user" | "assistant" | "system";
+      senderType?: "user" | "ai" | "admin";
+      content: string;
+      createdAt: string;
+      aiMeta?: ChatAIResponse;
+    }) => {
+      const incoming: Message = {
+        id: payload._id,
+        from: payload.role === "user" ? "user" : "bot",
+        senderType: (payload.senderType ||
+          (payload.role === "user" ? "user" : "ai")) as any,
+        text: payload.content,
+        createdAt: payload.createdAt,
+        aiMeta: payload.aiMeta,
+      };
+
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === incoming.id)) return prev;
+
+        const next = [...prev, incoming];
+        next.sort((a, b) => {
+          const ta = new Date(a.createdAt).getTime();
+          const tb = new Date(b.createdAt).getTime();
+          if (ta !== tb) return ta - tb;
+          return a.id.localeCompare(b.id);
+        });
+        return next;
+      });
+    };
+
+    channel.bind("new-message", handler);
+
+    return () => {
+      channel.unbind("new-message", handler);
+      pusherClient.unsubscribe(channelName);
+    };
+  }, [sessionKey]);
 
   // 🛒 URL থেকে প্রোডাক্ট লোড করে currentProduct সেট
   useEffect(() => {
+    if (orderJustSubmitted) return;
+
     const id = searchParams.get("productId");
     if (!id) return;
 
@@ -154,8 +215,11 @@ function ChatInner() {
 
         const data = await res.json();
         const p = data.products?.[0] as Product | undefined;
+
         if (p) {
           setCurrentProduct(p);
+
+          // ✅ আপনার আগের behavior: product open হলে form ready
           setPendingOrder({
             productId: p.productId,
             quantity: 1,
@@ -163,8 +227,7 @@ function ChatInner() {
             price: p.price,
           });
 
-          // ekbar matro intro mark kore rakhi (login na)
-          setIntroSentForProduct(p.productId);
+          scrollToBottom(false);
         }
       } catch (e) {
         console.error("Failed to load selected product:", e);
@@ -172,7 +235,8 @@ function ChatInner() {
     };
 
     fetchProduct();
-  }, [searchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, orderJustSubmitted]);
 
   // 🚀 sendMessage
   const sendMessage = async () => {
@@ -180,17 +244,6 @@ function ChatInner() {
 
     const userText = input.trim();
     setInput("");
-
-    const nowIso = new Date().toISOString();
-    const userMsg: Message = {
-      id: createId(),
-      from: "user",
-      senderType: "user",
-      text: userText,
-      createdAt: nowIso,
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
 
     const cancelIntent = isCancelOrderMessage(userText);
     const orderIntent = isOrderMessage(userText);
@@ -204,15 +257,15 @@ function ChatInner() {
           id: createId(),
           from: "bot",
           senderType: "ai",
-          text:
-            "ঠিক আছে আপু, অর্ডারটা ক্যানসেল করে দিলাম 💚 পরে আবার সময় হলে নিতে পারবেন ইনশাআল্লাহ।",
+          text: "ঠিক আছে আপু, অর্ডারটা ক্যানসেল করে দিলাম 💚 পরে আবার সময় হলে নিতে পারবেন ইনশাআল্লাহ।",
           createdAt: new Date().toISOString(),
         },
       ]);
+      scrollToBottom(true);
       return;
     }
 
-    // 🧾 লোকাল order intent → সোজা order form (jodi currentProduct thake)
+    // 🧾 লোকাল order intent → সোজা order form
     if (orderIntent && currentProduct) {
       setPendingOrder({
         productId: currentProduct.productId,
@@ -227,25 +280,23 @@ function ChatInner() {
           id: createId(),
           from: "bot",
           senderType: "ai",
-          text:
-            "ঠিক আছে আপু 🥰 নিচের ফর্মটি পূরণ করে অর্ডারটি কনফার্ম করে দিন।",
+          text: "ঠিক আছে আপু 🥰 নিচের ফর্মটি পূরণ করে অর্ডারটি কনফার্ম করে দিন।",
           createdAt: new Date().toISOString(),
         },
       ]);
-      // তারপরও AI কে বার্তা পাঠাবো, natural reply পেতে
+      scrollToBottom(true);
     }
 
     setLoading(true);
 
     try {
-      const baseMessages = [...messages, userMsg].map((m) => ({
+      const baseMessages = [...messages].map((m) => ({
         role: m.from === "user" ? "user" : "assistant",
         content: m.text,
       }));
 
-      const messagesForApi = [...baseMessages];
+      const messagesForApi = [...baseMessages, { role: "user" as const, content: userText }];
 
-      // 🌟 NOTE: AI কে সবসময় জানাই – নিচের card-টাই current product
       if (currentProduct) {
         messagesForApi.splice(messagesForApi.length - 1, 0, {
           role: "assistant" as const,
@@ -281,8 +332,7 @@ RULES:
             id: createId(),
             from: "bot",
             senderType: "ai",
-            text:
-              "দুঃখিত, এখন সার্ভারে একটু সমস্যা হচ্ছে 😔 কিছুক্ষণ পর আবার চেষ্টা করবেন।",
+            text: "দুঃখিত, এখন সার্ভারে একটু সমস্যা হচ্ছে 😔 কিছুক্ষণ পর আবার চেষ্টা করবেন।",
             createdAt: new Date().toISOString(),
           },
         ]);
@@ -299,12 +349,10 @@ RULES:
         }
       }
 
-      // 🧾 AI যদি নিজে থেকে ASK_ORDER_FORM দেয়
       if (data.intent === "ASK_ORDER_FORM" && data.selected_products?.length) {
         const sel = data.selected_products[0];
         const matchedProduct =
-          data.products?.find((p) => p.productId === sel.productId) ||
-          currentProduct;
+          data.products?.find((p) => p.productId === sel.productId) || currentProduct;
 
         if (matchedProduct) {
           setCurrentProduct(matchedProduct as Product);
@@ -316,21 +364,6 @@ RULES:
           });
         }
       }
-
-      // ✉️ AI’র main reply
-      if (data.reply_bn && data.reply_bn.trim().length > 0) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: createId(),
-            from: "bot",
-            senderType: "ai",
-            text: data.reply_bn,
-            aiMeta: data,
-            createdAt: new Date().toISOString(),
-          },
-        ]);
-      }
     } catch (err) {
       console.error("Chat send error:", err);
       setMessages((prev) => [
@@ -339,8 +372,7 @@ RULES:
           id: createId(),
           from: "bot",
           senderType: "ai",
-          text:
-            "নেটওয়ার্ক এররের জন্য মেসেজটা পাঠানো যায়নি 😢 একটু পরে আবার চেষ্টা করবেন প্লিজ।",
+          text: "নেটওয়ার্ক এররের জন্য মেসেজটা পাঠানো যায়নি 😢 একটু পরে আবার চেষ্টা করবেন প্লিজ।",
           createdAt: new Date().toISOString(),
         },
       ]);
@@ -367,7 +399,7 @@ RULES:
           <div className="text-[18px] text-emerald-100/90">⋮</div>
         </div>
 
-        {/* Chat area (scrollable) */}
+        {/* Chat area */}
         <div
           className="
             flex-1
@@ -381,15 +413,11 @@ RULES:
           {messages.map((m) => (
             <ChatBubble key={m.id} from={m.from}>
               {m.from === "user" && (
-                <div className="text-[10px] text-slate-300/80 mb-0.5">
-                  Customer
-                </div>
+                <div className="text-[10px] text-slate-300/80 mb-0.5">Customer</div>
               )}
 
               {m.senderType === "admin" && m.from === "bot" && (
-                <div className="text-[10px] text-amber-300 mb-0.5">
-                  Admin
-                </div>
+                <div className="text-[10px] text-amber-300 mb-0.5">Admin</div>
               )}
 
               <div className="whitespace-pre-line">{m.text}</div>
@@ -400,7 +428,6 @@ RULES:
                 </div>
               )}
 
-              {/* AI যদি SHOW_PRODUCTS intent পাঠায় → সেই মেসেজের নিচে কার্ড দেখাই */}
               {m.aiMeta?.intent === "SHOW_PRODUCTS" &&
                 Array.isArray(m.aiMeta.products) &&
                 m.aiMeta.products.length > 0 && (
@@ -410,7 +437,6 @@ RULES:
                     ))}
                   </div>
                 )}
-
             </ChatBubble>
           ))}
 
@@ -434,28 +460,21 @@ RULES:
           <div ref={bottomRef} />
         </div>
 
-        {/* নিচের অংশ: প্রথমে current product card + order hint + form, তারপর input */}
-
-        {/* Current Product (card + hint text) */}
-        {currentProduct && (
+        {/* ✅ Current Product panel (order submit হলে hidden) */}
+        {currentProduct && !orderJustSubmitted && (
           <div className="bg-slate-950 border-t border-slate-800 px-3 py-2">
-            <div className="text-[11px] mb-1 text-slate-200">
-              আপনি যে প্রোডাক্টটি দেখছেন 👇
-            </div>
+            <div className="text-[11px] mb-1 text-slate-200">আপনি যে প্রোডাক্টটি দেখছেন 👇</div>
             <ProductCard product={currentProduct as any} />
 
             <div className="mt-2 text-[11px] text-emerald-200 bg-slate-900/70 rounded-xl px-3 py-1.5">
-              আপু/ভাই, যদি এই{" "}
-              <span className="font-semibold">
-                “{currentProduct.name_bn}”
-              </span>{" "}
-              প্রোডাক্টটা অর্ডার করতে চান, তাহলে নিচের ফর্মটি পূরণ করে কনফার্ম
-              করে দিন। 🙂
+              আপু/ভাই, যদি{" "}
+              <span className="font-semibold">“{currentProduct.name_bn}”</span>{" "}
+              প্রোডাক্টটা অর্ডার করতে চান, তাহলে নিচের ফর্মটি পূরণ করে কনফার্ম করে দিন। 🙂
             </div>
           </div>
         )}
 
-        {/* Order form */}
+        {/* ✅ Order form */}
         {pendingOrder && (
           <OrderForm
             selected={{
@@ -465,9 +484,25 @@ RULES:
               price: pendingOrder.price,
             }}
             onSubmitted={() => {
-              // ✅ order hoye gele form bandho
+              // ✅ 1) UI clean
               setPendingOrder(null);
-              // success message chat history theke automatic asbe (/api/order route er through)
+              setCurrentProduct(null);
+
+              // ✅ 2) prevent product reload
+              setOrderJustSubmitted(true);
+
+              // ✅ 3) URL clean (HARD) - router.replace কখনো delay করে, তাই hard replace
+              if (typeof window !== "undefined") {
+                window.history.replaceState({}, "", "/chat");
+              } else {
+                router.replace("/chat");
+              }
+
+              // ✅ 4) scroll (confirm message pusher দিয়ে আসবে)
+              setTimeout(() => scrollToBottom(true), 180);
+
+              // ✅ 5) later allow product load again
+              setTimeout(() => setOrderJustSubmitted(false), 800);
             }}
           />
         )}
@@ -480,6 +515,7 @@ RULES:
           >
             😊
           </button>
+
           <input
             className="flex-1 bg-slate-800 text-slate-100 px-3 py-2 rounded-full text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             value={input}
@@ -487,6 +523,7 @@ RULES:
             onKeyDown={(e) => e.key === "Enter" && sendMessage()}
             placeholder="মেসেজ লিখুন..."
           />
+
           <button
             onClick={sendMessage}
             disabled={loading}

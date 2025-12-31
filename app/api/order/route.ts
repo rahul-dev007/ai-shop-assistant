@@ -5,24 +5,18 @@ import Order from "@/lib/models/Order";
 import { isValidObjectId } from "mongoose";
 import { sendOrderEmail } from "@/lib/email";
 
-// 🔹 chat models import
 import { getChatSessionModel } from "@/lib/models/ChatSession";
 import { getChatMessageModel } from "@/lib/models/ChatMessage";
+
+// ✅ ADD THIS
+import { pusherServer } from "@/lib/pusher/server";
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
     const body = await req.json();
 
-    const {
-      productId,
-      quantity,
-      fullName,
-      phone,
-      email,
-      address,
-      source,
-    } = body as {
+    const { productId, quantity, fullName, phone, email, address, source } = body as {
       productId: string;
       quantity?: number;
       fullName: string;
@@ -33,18 +27,13 @@ export async function POST(req: NextRequest) {
     };
 
     if (!productId || !isValidObjectId(productId)) {
-      console.warn("Invalid productId from client:", productId);
       return NextResponse.json(
-        {
-          error:
-            "সঠিক প্রোডাক্ট সিলেক্ট করা হয়নি। আবার প্রোডাক্টের নাম লিখে চেষ্টা করুন।",
-        },
+        { error: "সঠিক প্রোডাক্ট সিলেক্ট করা হয়নি। আবার প্রোডাক্টের নাম লিখে চেষ্টা করুন।" },
         { status: 400 }
       );
     }
 
-    const safeQuantity =
-      typeof quantity === "number" && quantity > 0 ? quantity : 1;
+    const safeQuantity = typeof quantity === "number" && quantity > 0 ? quantity : 1;
 
     const order = await Order.create({
       productId,
@@ -56,11 +45,9 @@ export async function POST(req: NextRequest) {
       source: source || "facebook",
     });
 
-    // ✅ success message (Bangla) – ek jaygay define kore dibo
     const successMessageBn =
       "আপনার অর্ডার কনফার্ম হয়েছে 🥰 ইনশাআল্লাহ খুব দ্রুত আপনাকে যোগাযোগ করা হবে। ইমেইলেও কনফার্মেশন পাঠানো হয়েছে (যদি ইমেইল দিয়ে থাকেন)।";
 
-    // 🔹 Order save সফল হওয়ার পর email পাঠাই (best-effort)
     try {
       await sendOrderEmail({
         toCustomer: email || null,
@@ -75,17 +62,16 @@ export async function POST(req: NextRequest) {
       console.warn("Order saved but email send failed:", mailErr);
     }
 
-    // 🔹 Chat side: একই success মেসেজটাকে chat history তেও সংরক্ষণ করি
+    // ✅ Chat message save + PUSHER broadcast
     try {
       const sessionKey = req.cookies.get("hb_session")?.value || null;
-
       if (sessionKey) {
         const ChatSession = await getChatSessionModel();
         const ChatMessage = await getChatMessageModel();
 
         const session = await ChatSession.findOne({ sessionKey });
         if (session) {
-          await ChatMessage.create({
+          const saved = await ChatMessage.create({
             sessionId: session._id,
             role: "assistant",
             senderType: "ai",
@@ -94,21 +80,23 @@ export async function POST(req: NextRequest) {
 
           session.lastMessageAt = new Date();
           await session.save();
+
+          // ✅ broadcast realtime
+          await pusherServer.trigger(`chat-${sessionKey}`, "new-message", {
+            _id: saved._id.toString(),
+            role: "assistant",
+            senderType: "ai",
+            content: saved.content,
+            createdAt: saved.createdAt,
+          });
         }
       }
     } catch (chatErr) {
-      console.warn(
-        "Order saved but chat success message failed:",
-        chatErr
-      );
-      // chat message fail holeo order+email already done, tai here just warn
+      console.warn("Order saved but chat success message failed:", chatErr);
     }
 
     return NextResponse.json(
-      {
-        orderId: order._id.toString(),
-        messageBn: successMessageBn,
-      },
+      { orderId: order._id.toString(), messageBn: successMessageBn },
       { status: 201 }
     );
   } catch (err) {

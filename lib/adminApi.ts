@@ -13,9 +13,7 @@ export interface Product {
 
 export interface Order {
   _id: string;
-  productId:
-  | string
-  | (Product & { _id: string }); // populate করলে object আসবে
+  productId: string | (Product & { _id: string }); // populate করলে object আসবে
   quantity: number;
   fullName: string;
   phone: string;
@@ -39,6 +37,10 @@ export interface DashboardStats {
   totalRevenue: number;
 }
 
+// --------------------
+// Chats (Admin)
+// --------------------
+export type SenderType = "user" | "ai" | "admin";
 
 export interface ChatSessionSummary {
   _id: string;
@@ -58,6 +60,7 @@ export interface ChatSessionSummary {
 export interface ChatMessage {
   _id: string;
   role: "user" | "assistant" | "system";
+  senderType?: SenderType; // ✅ add (admin page uses it)
   content: string;
   createdAt: string;
 }
@@ -69,10 +72,17 @@ export interface ChatDetailResponse {
     source?: string;
     createdAt: string;
     lastMessageAt?: string;
+    aiDisabled?: boolean; // ✅ add (backend sends it)
   };
   messages: ChatMessage[];
+  pageInfo?: {
+    limit: number;
+    hasMore: boolean;
+    before: string | null;
+    oldestMessageAt: string | null;
+    newestMessageAt: string | null;
+  };
 }
-
 
 export const adminApi = createApi({
   reducerPath: "adminApi",
@@ -97,10 +107,7 @@ export const adminApi = createApi({
       invalidatesTags: ["Products"],
     }),
 
-    updateProduct: builder.mutation<
-      Product,
-      { id: string; data: Partial<Product> }
-    >({
+    updateProduct: builder.mutation<Product, { id: string; data: Partial<Product> }>({
       query: ({ id, data }) => ({
         url: `/products/${id}`,
         method: "PUT",
@@ -128,10 +135,7 @@ export const adminApi = createApi({
       providesTags: ["Orders"],
     }),
 
-    updateOrder: builder.mutation<
-      Order,
-      { id: string; data: Partial<Order> }
-    >({
+    updateOrder: builder.mutation<Order, { id: string; data: Partial<Order> }>({
       query: ({ id, data }) => ({
         url: `/orders/${id}`,
         method: "PUT",
@@ -143,22 +147,33 @@ export const adminApi = createApi({
     // ----- Dashboard Stats -----
     getDashboardStats: builder.query<DashboardStats, void>({
       query: () => "/stats",
-      // চাইলে later এখানে providesTags: ["Stats"] দিতে পারো
+      providesTags: ["Stats"],
     }),
 
-    // ⭐ নতুন: chat sessions list
+    // ----- Chats -----
     getChatSessions: builder.query<ChatSessionSummary[], void>({
       query: () => "/chats",
       providesTags: ["Chats"],
     }),
 
-    // ⭐ নতুন: single chat details
-    getChatDetail: builder.query<ChatDetailResponse, string>({
-      query: (id) => `/chats/${id}`,
-      providesTags: (result, error, id) =>
-        result ? [{ type: "Chats", id }] : ["Chats"],
+    // ✅ allow optional limit/before later (pagination ready)
+    getChatDetail: builder.query<
+      ChatDetailResponse,
+      { id: string; limit?: number; before?: string } | string
+    >({
+      query: (arg) => {
+        if (typeof arg === "string") return `/chats/${arg}`;
+        const params = new URLSearchParams();
+        if (arg.limit) params.set("limit", String(arg.limit));
+        if (arg.before) params.set("before", arg.before);
+        const qs = params.toString();
+        return `/chats/${arg.id}${qs ? `?${qs}` : ""}`;
+      },
+      providesTags: (result, error, arg) => {
+        const id = typeof arg === "string" ? arg : arg.id;
+        return result ? [{ type: "Chats", id }] : ["Chats"];
+      },
     }),
-
   }),
 });
 

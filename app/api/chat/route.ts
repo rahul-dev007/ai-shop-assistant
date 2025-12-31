@@ -2,10 +2,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callGemini } from "@/lib/gemini";
 import { findCandidateProducts } from "@/lib/productSearch";
-import { ChatAIResponse } from "@/types/chat";
+import type { ChatAIResponse } from "@/types/chat";
 
 import { getChatSessionModel } from "@/lib/models/ChatSession";
 import { getChatMessageModel } from "@/lib/models/ChatMessage";
+
+import { pusherServer } from "@/lib/pusher/server";
+
+// ✅ helper: user "show products" command detect
+function isShowProductsCommand(text: string) {
+  const t = (text || "").trim().toLowerCase();
+  return (
+    t === "show" ||
+    t === "show me" ||
+    t.includes("show product") ||
+    t.includes("show products") ||
+    t === "products" ||
+    t.includes("products") ||
+    t.includes("দেখাও") ||
+    t.includes("দেখান") ||
+    t.includes("প্রোডাক্ট দেখাও") ||
+    t.includes("পণ্য দেখাও") ||
+    t.includes("সব দেখাও")
+  );
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,9 +43,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ সবসময় শেষের user মেসেজটাই ধরব (hidden product note assistant role এ থাকবে)
     const lastUserIndex = [...messages].map((m) => m.role).lastIndexOf("user");
-
     if (lastUserIndex === -1) {
       return NextResponse.json(
         { error: "No user message found" },
@@ -36,21 +54,15 @@ export async function POST(req: NextRequest) {
     const userMessage = messages[lastUserIndex].content;
     const previousMessages = messages.slice(0, lastUserIndex);
 
-    // -----------------------------
-    // 1) Session + Message models
-    // -----------------------------
     const ChatSession = await getChatSessionModel();
     const ChatMessage = await getChatMessageModel();
 
-    // body → cookie → নতুন random key
     let sessionKey =
       bodySessionKey ||
       req.cookies.get("hb_session")?.value ||
       crypto.randomUUID();
 
-    // session find / create
     let session = await ChatSession.findOne({ sessionKey });
-
     if (!session) {
       session = await ChatSession.create({
         sessionKey,
@@ -58,12 +70,21 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ⭐ শুধু pure user message save করব
-    await ChatMessage.create({
+    // ⭐ save user message
+    const savedUserMsg = await ChatMessage.create({
       sessionId: session._id,
       role: "user",
       senderType: "user",
       content: userMessage,
+    });
+
+    // ✅ PUSHER: user message realtime broadcast
+    await pusherServer.trigger(`chat-${sessionKey}`, "new-message", {
+      _id: savedUserMsg._id.toString(),
+      role: "user",
+      senderType: "user",
+      content: savedUserMsg.content,
+      createdAt: savedUserMsg.createdAt,
     });
 
     // -----------------------------
@@ -83,7 +104,7 @@ export async function POST(req: NextRequest) {
     }
 
     // -----------------------------
-    // 3) DB থেকে candidate products এনে AI কল
+    // 3) candidates + AI
     // -----------------------------
     const candidates = await findCandidateProducts(userMessage);
 
@@ -93,16 +114,24 @@ export async function POST(req: NextRequest) {
       previousMessages
     );
 
-    // Canonical product list – সব সময় DB থেকে
+    // Canonical product list – সব সময় DB থেকে (AI override)
     const canonicalProducts = candidates.map((c) => ({
       productId: c.productId,
       name_bn: c.name_bn,
+      name_en: (c as any).name_en,
+      category: (c as any).category,
       price: c.price,
       imageUrl: c.imageUrl,
+      tags: (c as any).tags,
+      stock: (c as any).stock,
     }));
 
-    // AI যা products পাঠাক, আমরা canonical দিয়ে override করছি
     (aiResponse as any).products = canonicalProducts;
+
+    // ✅ Bonus: user "show/show me/দেখাও" বললে SHOW_PRODUCTS force
+    if (isShowProductsCommand(userMessage)) {
+      aiResponse.intent = "SHOW_PRODUCTS";
+    }
 
     // selected_products sanitize
     if (aiResponse.selected_products && aiResponse.selected_products.length > 0) {
@@ -112,7 +141,6 @@ export async function POST(req: NextRequest) {
             const matched = canonicalProducts.find(
               (p) => p.productId === sel.productId
             );
-
             if (!matched) return null;
 
             return {
@@ -133,7 +161,7 @@ export async function POST(req: NextRequest) {
     }
 
     // -----------------------------
-    // 4) AI reply text DB তে save (pure Bangla)
+    // 4) assistant text save
     // -----------------------------
     const assistantText =
       (aiResponse as any).reply_bn ||
@@ -142,11 +170,28 @@ export async function POST(req: NextRequest) {
       (aiResponse as any).message ||
       "…";
 
-    await ChatMessage.create({
+    const savedAiMsg = await ChatMessage.create({
       sessionId: session._id,
       role: "assistant",
       senderType: "ai",
       content: assistantText,
+    });
+
+    // ✅ PUSHER: assistant message realtime broadcast (WITH aiMeta)
+    await pusherServer.trigger(`chat-${sessionKey}`, "new-message", {
+      _id: savedAiMsg._id.toString(),
+      role: "assistant",
+      senderType: "ai",
+      content: savedAiMsg.content,
+      createdAt: savedAiMsg.createdAt,
+
+      // 🔥 KEY FIX: UI cards/rendering এর জন্য meta পাঠাচ্ছি
+      aiMeta: {
+        reply_bn: (aiResponse as any).reply_bn || assistantText,
+        intent: aiResponse.intent || "NONE",
+        products: (aiResponse as any).products || [],
+        selected_products: aiResponse.selected_products || [],
+      },
     });
 
     session.lastMessageAt = new Date();
@@ -162,7 +207,7 @@ export async function POST(req: NextRequest) {
 
     if (!req.cookies.get("hb_session")) {
       res.cookies.set("hb_session", sessionKey, {
-        maxAge: 60 * 60 * 24 * 30, // 30 দিন
+        maxAge: 60 * 60 * 24 * 30, // 30 days
         path: "/",
       });
     }

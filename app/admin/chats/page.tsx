@@ -1,11 +1,12 @@
 // app/admin/chats/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useGetChatSessionsQuery,
   useGetChatDetailQuery,
 } from "@/lib/adminApi";
+import { pusherClient } from "@/lib/pusher/client";
 
 function formatDateTime(dateStr?: string) {
   if (!dateStr) return "-";
@@ -17,9 +18,10 @@ function formatDateTime(dateStr?: string) {
   });
 }
 
-// --- Type helper (red mark komanor jonno) ---
+// --- Type helper ---
 type AdminChatSession = {
   _id: string;
+  sessionKey: string;
   source?: string;
   lastMessageAt?: string;
   lastMessage?: {
@@ -49,7 +51,7 @@ type AdminChatDetail = {
 };
 
 export default function AdminChatsPage() {
-  // ⭐ Sessions list – প্রতি ৮ সেকেন্ডে refresh
+  // ⭐ Sessions list – প্রতি ৮ সেকেন্ডে refresh (OK)
   const {
     data: sessionsData,
     isLoading,
@@ -61,14 +63,15 @@ export default function AdminChatsPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // ⭐ Selected chat detail – প্রতি ৩ সেকেন্ডে refresh
+  // ✅ Detail: polling বন্ধ (realtime pusher দিয়ে হবে)
   const {
     data: chatDetailData,
     isLoading: detailLoading,
     refetch: refetchDetail,
   } = useGetChatDetailQuery(selectedId as string, {
     skip: !selectedId,
-    pollingInterval: 3000,
+    pollingInterval: 0,
+    refetchOnMountOrArgChange: true,
   });
 
   const sessions = (sessionsData ?? []) as AdminChatSession[];
@@ -79,6 +82,74 @@ export default function AdminChatsPage() {
   const [sendingReply, setSendingReply] = useState(false);
 
   const aiDisabled = chatDetail?.session?.aiDisabled ?? false;
+
+  // ✅ Local realtime state for selected chat messages
+  const [liveMessages, setLiveMessages] = useState<AdminChatMessage[]>([]);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  // whenever chatDetail changes (new session selected / fetched), sync liveMessages
+  useEffect(() => {
+    if (!chatDetail?.messages) return;
+    setLiveMessages(chatDetail.messages);
+  }, [chatDetail?.session?._id, chatDetail?.messages]);
+
+  const selectedSession = useMemo(() => {
+    if (!selectedId) return null;
+    return sessions.find((s) => s._id === selectedId) ?? null;
+  }, [selectedId, sessions]);
+
+  const selectedSessionKey = selectedSession?.sessionKey ?? chatDetail?.session?.sessionKey ?? null;
+
+  const scrollToBottom = () => {
+    if (!bottomRef.current) return;
+    bottomRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+  };
+
+  // ✅ Subscribe to Pusher for selected chat
+  useEffect(() => {
+    if (!selectedSessionKey) return;
+
+    const channelName = `chat-${selectedSessionKey}`;
+    const channel = pusherClient.subscribe(channelName);
+
+    const handler = (payload: {
+      _id: string;
+      role: "user" | "assistant" | "system";
+      senderType?: "user" | "ai" | "admin";
+      content: string;
+      createdAt: string;
+    }) => {
+      const incoming: AdminChatMessage = {
+        _id: payload._id,
+        role: payload.role,
+        senderType: payload.senderType,
+        content: payload.content,
+        createdAt: payload.createdAt,
+      };
+
+      setLiveMessages((prev) => {
+        if (prev.some((m) => m._id === incoming._id)) return prev;
+        return [...prev, incoming];
+      });
+
+      // update sessions list top info (optional: just refetch)
+      // keep it light: refetch sessions every now and then is already on
+      setTimeout(scrollToBottom, 50);
+    };
+
+    channel.bind("new-message", handler);
+
+    return () => {
+      channel.unbind("new-message", handler);
+      pusherClient.unsubscribe(channelName);
+    };
+  }, [selectedSessionKey]);
+
+  // auto-scroll when liveMessages changes
+  useEffect(() => {
+    if (!selectedId) return;
+    setTimeout(scrollToBottom, 50);
+  }, [liveMessages.length, selectedId]);
 
   async function handleToggleAi() {
     if (!selectedId) return;
@@ -123,6 +194,8 @@ export default function AdminChatsPage() {
       }
 
       setReplyText("");
+      // detail refetch না করলেও চলবে (Pusher দিয়ে আসবে),
+      // তবুও safe রেখে দিলাম:
       await refetchDetail();
       await refetchSessions();
     } catch (err) {
@@ -135,9 +208,7 @@ export default function AdminChatsPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
-      <h1 className="text-xl sm:text-2xl font-semibold">
-        Admin – Chat History
-      </h1>
+      <h1 className="text-xl sm:text-2xl font-semibold">Admin – Chat History</h1>
 
       <p className="text-xs sm:text-sm text-slate-400">
         এখানে আপনার কাস্টমারদের সাথে হওয়া AI + Admin চ্যাটগুলো দেখতে পাবেন।
@@ -157,13 +228,9 @@ export default function AdminChatsPage() {
             </button>
           </div>
 
-          {isLoading && (
-            <div className="p-3 text-xs text-slate-400">লোড হচ্ছে...</div>
-          )}
+          {isLoading && <div className="p-3 text-xs text-slate-400">লোড হচ্ছে...</div>}
           {error && (
-            <div className="p-3 text-xs text-red-400">
-              সেশন লোড করতে সমস্যা হচ্ছে
-            </div>
+            <div className="p-3 text-xs text-red-400">সেশন লোড করতে সমস্যা হচ্ছে</div>
           )}
 
           {!isLoading && !error && (
@@ -171,15 +238,16 @@ export default function AdminChatsPage() {
               {sessions.map((s) => (
                 <li
                   key={s._id}
-                  onClick={() => setSelectedId(s._id)}
+                  onClick={() => {
+                    setSelectedId(s._id);
+                    setReplyText("");
+                  }}
                   className={`px-3 py-2 border-b border-slate-900 cursor-pointer hover:bg-slate-900/60 ${
                     selectedId === s._id ? "bg-slate-900/80" : ""
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-slate-100">
-                      {s.source || "website"}
-                    </span>
+                    <span className="font-medium text-slate-100">{s.source || "website"}</span>
                     <span className="text-[10px] text-slate-500">
                       {formatDateTime(s.lastMessageAt)}
                     </span>
@@ -189,9 +257,7 @@ export default function AdminChatsPage() {
                   </div>
                   <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500">
                     <span>মোট মেসেজ: {s.messageCount}</span>
-                    {s.aiDisabled && (
-                      <span className="text-amber-400">AI Paused</span>
-                    )}
+                    {s.aiDisabled && <span className="text-amber-400">AI Paused</span>}
                   </div>
                 </li>
               ))}
@@ -211,9 +277,9 @@ export default function AdminChatsPage() {
           <div className="px-3 py-2 border-b border-slate-800 text-xs font-medium text-slate-300 flex items-center justify-between gap-2">
             <div className="flex flex-col">
               <span>চ্যাট ডিটেইলস</span>
-              {chatDetail?.session?.sessionKey && (
+              {selectedSessionKey && (
                 <span className="text-[10px] text-slate-500">
-                  Session: {chatDetail.session.sessionKey.slice(0, 8)}…
+                  Session: {selectedSessionKey.slice(0, 8)}…
                 </span>
               )}
             </div>
@@ -247,7 +313,6 @@ export default function AdminChatsPage() {
             )}
           </div>
 
-          {/* Messages area */}
           {!selectedId && (
             <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
               বাম দিক থেকে কোনো সেশন সিলেক্ট করুন।
@@ -260,10 +325,10 @@ export default function AdminChatsPage() {
             </div>
           )}
 
-          {selectedId && !detailLoading && chatDetail && (
+          {selectedId && !detailLoading && (
             <>
               <div className="flex-1 p-3 space-y-2 overflow-y-auto text-xs">
-                {chatDetail.messages.map((m) => {
+                {liveMessages.map((m) => {
                   const isUser = m.role === "user";
                   const senderType = m.senderType || (isUser ? "user" : "ai");
 
@@ -275,12 +340,7 @@ export default function AdminChatsPage() {
                       : "Customer";
 
                   return (
-                    <div
-                      key={m._id}
-                      className={`flex ${
-                        isUser ? "justify-start" : "justify-end"
-                      }`}
-                    >
+                    <div key={m._id} className={`flex ${isUser ? "justify-start" : "justify-end"}`}>
                       <div
                         className={`max-w-[80%] px-3 py-2 rounded-2xl text-[11px] ${
                           isUser
@@ -290,10 +350,8 @@ export default function AdminChatsPage() {
                             : "bg-emerald-500 text-slate-900 rounded-br-sm"
                         }`}
                       >
-                        <div className="text-[10px] mb-0.5 opacity-80">
-                          {senderLabel}
-                        </div>
-                        <div>{m.content}</div>
+                        <div className="text-[10px] mb-0.5 opacity-80">{senderLabel}</div>
+                        <div className="whitespace-pre-line">{m.content}</div>
                         <div className="mt-1 text-[9px] opacity-70">
                           {formatDateTime(m.createdAt)}
                         </div>
@@ -302,11 +360,13 @@ export default function AdminChatsPage() {
                   );
                 })}
 
-                {chatDetail.messages.length === 0 && (
+                {liveMessages.length === 0 && (
                   <div className="text-center text-[11px] text-slate-400 mt-4">
                     এই সেশনে কোনো মেসেজ নেই।
                   </div>
                 )}
+
+                <div ref={bottomRef} />
               </div>
 
               {/* Admin reply box */}
@@ -315,9 +375,7 @@ export default function AdminChatsPage() {
                   className="flex-1 bg-slate-900 text-slate-100 px-3 py-2 rounded-full text-xs placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   value={replyText}
                   onChange={(e) => setReplyText(e.target.value)}
-                  onKeyDown={(e) =>
-                    e.key === "Enter" && !e.shiftKey && handleSendReply()
-                  }
+                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSendReply()}
                   placeholder="Admin ভাবে উত্তর লিখুন..."
                 />
                 <button

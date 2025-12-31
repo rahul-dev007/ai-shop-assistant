@@ -10,8 +10,9 @@ interface OrderFormProps {
     productName?: string;
     price?: number;
   };
-  // success hole parent ke just notify (form close korar jonno)
-  onSubmitted?: () => void;
+
+  // ✅ success হলে parent কে confirm text পাঠাবো
+  onSubmitted?: (confirmText: string) => void;
 }
 
 export default function OrderForm({ selected, onSubmitted }: OrderFormProps) {
@@ -45,22 +46,29 @@ export default function OrderForm({ selected, onSubmitted }: OrderFormProps) {
         }),
       });
 
-      const data = await res.json();
+      const data: any = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(data.error || "অর্ডার করতে সমস্যা হয়েছে");
+        setError(data?.error || "অর্ডার করতে সমস্যা হয়েছে");
         return;
       }
 
-      // ✅ এখান থেকে chat message backend already handle করেছে
-      // আমরা শুধু local form reset + parent notify করব
+      // ✅ confirm message text (API যেভাবে পাঠায় তার জন্য fallback)
+      const confirmText =
+        data?.message ||
+        data?.reply_bn ||
+        data?.confirmMessage ||
+        "আপনার অর্ডার কনফার্ম হয়েছে 🥰 ইনশাআল্লাহ খুব দ্রুত আপনাকে যোগাযোগ করা হবে। (please check your Email)";
+
+      // ✅ local reset
       setFullName("");
       setPhone("");
       setEmail("");
       setAddress("");
       setQuantity(selected.quantity || 1);
 
-      onSubmitted?.();
+      // ✅ parent কে confirm text পাঠাও
+      onSubmitted?.(confirmText);
     } catch (err: any) {
       console.error("Order submit error:", err);
       setError("সার্ভার এরর হয়েছে, আবার চেষ্টা করুন");
@@ -157,11 +165,7 @@ export default function OrderForm({ selected, onSubmitted }: OrderFormProps) {
           />
         </div>
 
-        {error && (
-          <p className="text-[10px] text-red-400 mt-1">
-            {error}
-          </p>
-        )}
+        {error && <p className="text-[10px] text-red-400 mt-1">{error}</p>}
 
         <button
           type="submit"
@@ -172,8 +176,7 @@ export default function OrderForm({ selected, onSubmitted }: OrderFormProps) {
         </button>
 
         <p className="mt-1 text-[10px] text-slate-400">
-          আর এমন আরো ডিজাইন বা অন্য কালার দেখতে চাইলে আমাকে মেসেজে লিখুন —
-          যেমন{" "}
+          আর এমন আরো ডিজাইন বা অন্য কালার দেখতে চাইলে আমাকে মেসেজে লিখুন — যেমন{" "}
           <span className="text-emerald-300">
             "aro design dakhao" / "onno color dekhai"
           </span>{" "}
