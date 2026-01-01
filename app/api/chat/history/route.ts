@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getChatSessionModel } from "@/lib/models/ChatSession";
 import { getChatMessageModel } from "@/lib/models/ChatMessage";
 
+// ✅ Vercel/Next static render error fix
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
